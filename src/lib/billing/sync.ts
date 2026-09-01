@@ -78,15 +78,42 @@ export async function syncSubscription(
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     canceledAt: canceledAtOf(sub),
     endedAt: endedAtOf(sub),
-    // Never unset once set: it records that money has actually changed hands.
+    /*
+     * Read for the INSERT path only. The UPDATE path must not touch this column
+     * at all — see the onConflictDoUpdate below.
+     */
     firstPaidAt: prior?.firstPaidAt ?? null,
     lastEventCreated: eventCreated ?? prior?.lastEventCreated ?? null,
     syncedAt: new Date(),
     raw: sub as unknown as Record<string, unknown>,
   };
 
+  /*
+   * firstPaidAt is deliberately EXCLUDED from the update.
+   *
+   * Stripe delivers events in parallel, and on the first real purchase three
+   * arrived at once. `invoice.paid` called markFirstPaid and set the column;
+   * `checkout.session.completed` was already mid-flight with a `prior` it had
+   * read moments earlier — before that write — and its upsert wrote the stale
+   * null straight back over it.
+   *
+   * The consequence is not cosmetic. firstPaidAt gates the grace period, so a
+   * customer who has genuinely paid would get NO grace window when a renewal
+   * failed: locked out immediately instead of keeping access for 24 hours while
+   * Stripe retries the card. That is a support ticket and a likely dispute from
+   * someone who did nothing wrong.
+   *
+   * Leaving the column out of the update makes markFirstPaid its sole writer,
+   * so no ordering of events can undo it. Re-reading and merging would not fix
+   * it — the read and the write would still not be atomic.
+   */
+  const { firstPaidAt: _neverUpdated, ...updatable } = row;
+
   await db().insert(schema.subscriptions).values(row)
-    .onConflictDoUpdate({ target: schema.subscriptions.stripeSubscriptionId, set: row });
+    .onConflictDoUpdate({
+      target: schema.subscriptions.stripeSubscriptionId,
+      set: updatable,
+    });
 
   await recomputeEntitlement(userId);
   void tier;
