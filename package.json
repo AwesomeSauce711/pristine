@@ -3,24 +3,43 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "verify:patch": "tsx --conditions=react-server scripts/verify-port.ts",
+    "verify:scan": "tsx scripts/verify-scan.mts",
+    "verify:entitlement": "tsx --conditions=react-server scripts/verify-entitlement.mts",
+    "verify": "npm run typecheck && npm run verify:patch && npm run verify:elst && npm run verify:scan && npm run verify:entitlement",
+    "check:legal": "node --env-file-if-exists=.env.local node_modules/tsx/dist/cli.mjs scripts/check-legal.mts",
+    "stripe:seed": "node --env-file-if-exists=.env.local node_modules/tsx/dist/cli.mjs scripts/stripe-seed.mts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs migrate",
+    "stripe:listen": "node --env-file-if-exists=.env.local scripts/stripe-listen.mjs",
+    "verify:elst": "tsx --conditions=react-server scripts/verify-elst.mts",
+    "method:status": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/method-status.mts",
+    "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
     "next": "16.3.3",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "stripe": "^22.6.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

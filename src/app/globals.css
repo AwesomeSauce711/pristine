@@ -1,26 +1,173 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Pristine — visual system.
+ *
+ * DIRECTION
+ * Two registers, deliberately different.
+ *
+ * The marketing pages are cinematic: a near-black ground, one accent, large
+ * type, and a lot of air. The product being sold is picture quality, so the
+ * page has to look like it was made by someone who cares about picture quality.
+ *
+ * The tool itself is an instrument: every measured number in monospace with
+ * tabular figures, small-caps legends, and colour reserved for state. When the
+ * app says "2160x3840 - 59.94 fps - H.264 High @ L5.2" that is read out of the
+ * user's actual file, and it should look like a readout, not marketing copy.
+ *
+ * THE ONE COLOUR RULE
+ * Violet is the brand and is used for emphasis and action. Green and amber mean
+ * something is true or needs attention. Nothing else is coloured. A glance at
+ * colour should always be a glance at meaning.
+ *
+ * WHY NOT CYAN AND PINK
+ * The earlier local tool used #25f4ee and #fe2c55 — TikTok's own brand colours.
+ * On a site that also renders a TikTok-shaped preview, that combination reads as
+ * affiliation, which is a trade-dress problem and not a look we want anyway.
+ */
+
+@theme {
+  --color-bg: #08080b;
+  --color-bg-soft: #0d0d12;
+  --color-panel: #131318;
+  --color-panel-2: #191920;
+  --color-line: #23232e;
+  --color-line-soft: #1b1b24;
+
+  --color-text: #f2f3f7;
+  --color-muted: #8e93a6;
+  --color-dim: #5f6478;
+
+  --color-accent: #7c5cff;
+  --color-accent-soft: #9b83ff;
+  --color-accent-dim: #4a3a99;
+  --color-good: #35d07f;
+  --color-warn: #ffb020;
+  --color-bad: #ff5c5c;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --radius-panel: 16px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  background: var(--color-bg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Every figure the product reports is tabular, so columns of numbers line up
+ * and a changing value does not make the layout twitch. */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Equipment-label small caps, used for the legends above readouts. */
+.legend {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+/* The one decorative flourish: a slow violet wash behind the hero. Kept as a
+ * single element so it can be removed in one place if it ever feels cheap. */
+.aurora {
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 70vh;
+  background:
+    radial-gradient(58% 44% at 22% 8%, rgba(124, 92, 255, 0.20), transparent 65%),
+    radial-gradient(46% 40% at 82% 0%, rgba(74, 58, 153, 0.22), transparent 62%);
+  filter: blur(28px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/*
+ * NO GRAIN OVERLAY. Removed twice over, and worth recording why so it does not
+ * get added back a third time.
+ *
+ * Scoped to the hero, a 3.5%-opacity noise layer painted a subtly lighter
+ * rectangle that ended in a hard horizontal line partway down the page — against
+ * pure black, that reads as a seam rather than as texture.
+ *
+ * Moved to a fixed, full-viewport layer to fix the seam, it then sat on top of
+ * two autoplaying videos and forced the compositor to re-blend a full-screen
+ * texture over changing pixels every frame. That was enough to hang the
+ * renderer outright.
+ *
+ * Banding on cheap panels is a real problem, but it is a smaller one than a
+ * page that stutters over its own hero video. If it ever needs solving, do it
+ * with a subtle gradient in the background paint rather than an overlay above
+ * the content.
+ */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.spin-slow { animation: spin-slow 6s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .rise, .spin-slow { animation: none !important; }
+}
+
+::selection {
+  background: var(--color-accent);
+  color: white;
+}
+
+/*
+ * A visible focus ring on everything interactive, once, globally.
+ *
+ * Tailwind's reset removes the browser default, and adding `focus-visible:ring`
+ * to each element by hand means the one that gets forgotten is invisible to
+ * keyboard users — which is most of the ways this could go wrong. `:focus-visible`
+ * rather than `:focus` so a mouse click does not leave a ring behind.
+ *
+ * Declared with a real offset so the ring reads against both the near-black page
+ * and the lighter panels.
+ */
+:where(a, button, input, textarea, select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/*
+ * Keyboard users need a way past the nav. Visually hidden until focused, which
+ * is the one time it is useful.
+ */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 200;
+}
+.skip-link:focus {
+  left: 12px;
+  top: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 14px;
 }

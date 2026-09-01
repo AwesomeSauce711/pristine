@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    The mark: a frame with its corners intact.
+    "Nothing lost" is the entire product, and corner brackets are the one shape
+    that reads at 16px as "the edges of a picture are still there".
+  -->
+  <rect width="32" height="32" rx="8" fill="#7c5cff"/>
+  <path d="M9 12.5V10a1 1 0 0 1 1-1h2.5M19.5 9H22a1 1 0 0 1 1 1v2.5M23 19.5V22a1 1 0 0 1-1 1h-2.5M12.5 23H10a1 1 0 0 1-1-1v-2.5"
+        stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+</svg>
