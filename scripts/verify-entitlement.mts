@@ -17,6 +17,7 @@ import {
   type SubscriptionFacts,
 } from '../src/lib/billing/entitlement';
 import { PLANS, disclosure } from '../src/lib/plans';
+import { isScheduledToEnd } from '../src/lib/billing/sync';
 
 let pass = 0;
 let fail = 0;
@@ -188,6 +189,38 @@ ok('a subscription with no tier grants nothing',
   const newer = base({ status: 'canceled', currentPeriodEnd: days(-5), endedAt: days(-5) });
   ok('with nothing live, the most recent dead one wins',
     governingSubscription([older, newer]) === newer);
+}
+
+/* ---------------------------------------------------- cancellation shapes */
+{
+  /*
+   * Stripe changed how a cancel-at-period-end is represented. On recent API
+   * versions the boolean stays FALSE and the intent lives in `cancel_at`.
+   * Reading only the boolean reported a cancelled subscription as renewing, and
+   * told a real customer their plan would renew right after they cancelled it.
+   * These cases pin every shape that has ever meant "this is going to stop".
+   */
+  type S = Parameters<typeof isScheduledToEnd>[0];
+  const sub = (o: Record<string, unknown>) => o as unknown as S;
+
+  ok('old shape: cancel_at_period_end true',
+    isScheduledToEnd(sub({ cancel_at_period_end: true, cancel_at: null, ended_at: null })));
+
+  ok('NEW shape: cancel_at set while the boolean is false',
+    isScheduledToEnd(sub({ cancel_at_period_end: false, cancel_at: 1788908723, ended_at: null })),
+    'what Stripe actually sent for a real cancellation');
+
+  ok('cancellation_details alone is enough',
+    isScheduledToEnd(sub({
+      cancel_at_period_end: false, cancel_at: null, ended_at: null,
+      cancellation_details: { reason: 'cancellation_requested' },
+    })));
+
+  ok('a running subscription is not scheduled to end',
+    !isScheduledToEnd(sub({ cancel_at_period_end: false, cancel_at: null, ended_at: null })));
+
+  ok('one that has already ended is not "scheduled to" end',
+    !isScheduledToEnd(sub({ cancel_at_period_end: true, cancel_at: 1, ended_at: 1788304802 })));
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

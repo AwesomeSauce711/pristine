@@ -75,7 +75,7 @@ export async function syncSubscription(
     currentPeriodEnd: end,
     trialStart: trialStartOf(sub),
     trialEnd: trialEndOf(sub),
-    cancelAtPeriodEnd: sub.cancel_at_period_end,
+    cancelAtPeriodEnd: isScheduledToEnd(sub),
     canceledAt: canceledAtOf(sub),
     endedAt: endedAtOf(sub),
     /*
@@ -206,6 +206,29 @@ export async function restoreEntitlement(userId: string): Promise<void> {
     .set({ revokedAt: null, revokedReason: null, updatedAt: new Date() })
     .where(eq(schema.entitlements.userId, userId));
   await recomputeEntitlement(userId);
+}
+
+/**
+ * Is this subscription scheduled to stop?
+ *
+ * `cancel_at_period_end` ALONE IS NO LONGER THE ANSWER. On recent API versions
+ * Stripe records a cancel-at-period-end as `cancel_at: <period end>` with the
+ * boolean left FALSE and the intent in `cancellation_details`. Reading only the
+ * boolean therefore reports a cancelled subscription as renewing — which is what
+ * the account page told a real customer after a real cancellation.
+ *
+ * The consequence is customer-facing and bad: someone who has just cancelled is
+ * shown "renews on the 8th". They either cancel again, or they call their bank,
+ * and both of those are worse than the support email.
+ *
+ * `ended_at` is checked because a subscription that has already stopped is not
+ * "scheduled to" stop — it is done, and `status` covers it.
+ */
+export function isScheduledToEnd(sub: Stripe.Subscription): boolean {
+  if (sub.ended_at) return false;
+  if (sub.cancel_at_period_end) return true;
+  if (sub.cancel_at) return true;
+  return sub.cancellation_details?.reason === 'cancellation_requested';
 }
 
 /** Record that money actually arrived. Gates the grace period. */
