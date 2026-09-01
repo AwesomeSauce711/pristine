@@ -216,19 +216,47 @@ Two known gaps, both called out in the code:
   the check and land one patch over the cap. For a fair-use limit that is
   acceptable; it is not acceptable if quotas ever become hard entitlements.
 
+## Watching it
+
+```bash
+npm run canary
+```
+
+Checks the two byte-equality anchors, the live site, the paywall, the webhook
+secret and that checkout still reaches Stripe — everything that can be checked
+without TikTok. Runs against `CANARY_ORIGIN`, defaulting to production, and
+degrades to HTTP-only checks when no database is reachable so it can run in CI.
+
+**It cannot tell you the method still works.** That needs a fresh upload read
+back from an authenticated session, so the canary tracks how long it has been
+since a human confirmed one and complains when that goes stale:
+
+```bash
+npm run canary -- --confirm ok
+npm run canary -- --confirm broken "served at 720p, ladder rebuilt"
+```
+
+`--confirm` writes the reading and sets `method_status`, which stops new sales
+immediately. Confirmed broken also wants `npm run method:status -- broken` to
+pause collection across the book.
+
+Wait more than two minutes before reading anything back. `videoQuality` reports
+`original` while a re-encode is merely pending.
+
 ## Still to do
 
-- **Stripe Radar controls** — dashboard settings, not code: free-trial abuse, bot
-  detection, refund abuse, adaptive 3DS, dynamic risk thresholds. Enable one at a
-  time and watch the block rate; on a low-priced product an over-tight rule bleeds
-  sales invisibly.
-- **`payment_method_types: ['card']`** is an open question in the checkout route.
-  Link arrives as type `link`, which exposes no card fingerprint, so
-  `trial_one_per_card` cannot bind it. Forcing card restores the fingerprint at the
-  cost of Link's renewal retries. Not decided.
-- **A canary** that patches a reference clip, uploads it to a test account and reads
-  back `videoQuality`, so `method_status` is flipped by evidence rather than by a
-  customer email.
-- **The `plans` table is unused.** Pricing renders from `src/lib/plans.ts`; the table
-  is never read or written. Either seed it from `stripe:seed` as a drift check, or
-  drop it — leaving dead schema around invites someone to trust it.
+- **Card fingerprints are never captured**, so `trial_one_per_card` cannot bind.
+  It has to be read from the PaymentMethod at `checkout.session.completed` — a
+  $0 trial invoice has no charge to read one from. Wallet payments (Link) expose
+  none at all, which is why the trial quota is the control that actually bounds
+  the loss.
+- **Stripe Radar controls** are dashboard settings: free-trial abuse, bot
+  detection, refund abuse, adaptive 3DS. Enable one at a time and watch the block
+  rate; on a low-priced product an over-tight rule bleeds sales invisibly.
+- **`STRIPE_TOS_CONSENT`** stays 0 until a Terms of Service URL is set in
+  Settings -> Public details. Until then there is no affirmative consent
+  checkbox anywhere, only the disclosure text above Stripe's pay button.
+- **Webhook responses average ~2.8s**, close enough to Stripe's timeout to be
+  worth measuring. Most likely Railway and Neon in different regions.
+- **The `plans` table is unused.** Pricing renders from `src/lib/plans.ts`.
+  Either seed it from `stripe:seed` as a drift check, or drop it.

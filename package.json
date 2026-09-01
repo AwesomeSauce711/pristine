@@ -20,7 +20,8 @@
     "verify:elst": "tsx --conditions=react-server scripts/verify-elst.mts",
     "method:status": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/method-status.mts",
     "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts",
-    "db:reset-test": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/reset-test-data.mts"
+    "db:reset-test": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/reset-test-data.mts",
+    "canary": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/canary.mts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
