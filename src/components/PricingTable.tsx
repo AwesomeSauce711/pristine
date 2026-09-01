@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PLANS, PLAN_ORDER, annualSavingPct, disclosure, money, type PlanId } from '@/lib/plans';
+import { PLANS, PLAN_ORDER, annualSavingPct, money, type PlanId } from '@/lib/plans';
 
 /*
  * The pricing ladder, and the consent step in front of Stripe.
@@ -34,7 +34,42 @@ import { PLANS, PLAN_ORDER, annualSavingPct, disclosure, money, type PlanId } fr
  * disclosure, the same checkbox and the same payment control.
  */
 export default function PricingTable() {
-  const [chosen, setChosen] = useState<PlanId | null>(null);
+  const [busy, setBusy] = useState<PlanId | null>(null);
+  const [error, setError] = useState('');
+
+  /*
+   * Straight to Stripe. There used to be a modal here that repeated the price,
+   * the renewal terms and the cancellation route, with its own checkbox, before
+   * redirecting — and then Stripe's page said all of it again.
+   *
+   * The disclosure has not been dropped. It is passed as `custom_text.submit`
+   * and renders directly above Stripe's Subscribe button, which is a better
+   * place for it than a screen two clicks earlier: the law asks for it adjacent
+   * to the control that starts billing, and that control is Stripe's, not ours.
+   * The verbatim text and its hash are still written to `consents` before the
+   * session exists, so the evidence record is unchanged.
+   */
+  async function start(plan: PlanId) {
+    setBusy(plan);
+    setError('');
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ plan, consented: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setError(data.message ?? 'Checkout could not be started. Please try again.');
+        setBusy(null);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setError('Checkout could not be started. Please check your connection.');
+      setBusy(null);
+    }
+  }
 
   return (
     <>
@@ -91,10 +126,20 @@ export default function PricingTable() {
                 * once, under the grid, where repeating it cannot flatten the
                 * comparison.
                 */}
+              {/*
+                * The number gets more emphatic as the plan does: plain, accent,
+                * then animated. It is the only thing that actually differs
+                * between the tiers, so it is the only thing that escalates.
+                */}
               <div className="mt-6 flex items-baseline gap-2">
-                <span className={`tabular text-[2.1rem] font-semibold leading-none tracking-[-0.03em] ${
-                  featured ? 'text-accent-soft' : 'text-text'
-                }`}>
+                <span
+                  className={[
+                    'tabular font-semibold leading-none tracking-[-0.03em]',
+                    p.id === 'year' ? 'rainbow-number text-[2.9rem]'
+                      : p.id === 'month' ? 'text-accent-soft text-[2.5rem]'
+                      : 'text-text text-[2.1rem]',
+                  ].join(' ')}
+                >
                   {p.dailyPatchCap}
                 </span>
                 <span className="text-[13.5px] leading-tight text-muted">
@@ -102,13 +147,19 @@ export default function PricingTable() {
                 </span>
               </div>
 
-              <p className="mt-4 text-[12.5px] leading-relaxed text-dim">
-                {p.periodPatchCap.toLocaleString()} per {p.interval} in total.
-              </p>
+              <ul className="mt-6 space-y-2.5 text-[13.5px] text-muted">
+                <li className="flex gap-2.5"><Tick /> Full quality, never re-encoded</li>
+                <li className="flex gap-2.5"><Tick /> Up to 4K and 60fps</li>
+                <li className="flex gap-2.5"><Tick /> Your video never leaves your device</li>
+                <li className="flex gap-2.5">
+                  <Tick /><span>{p.periodPatchCap.toLocaleString()} per {p.interval} in total</span>
+                </li>
+              </ul>
 
               <div className="mt-7 border-t border-line-soft pt-6">
                 <button
-                  onClick={() => setChosen(p.id)}
+                  onClick={() => start(p.id)}
+                  disabled={busy !== null}
                   className={[
                     'block w-full rounded-xl px-5 py-3 text-center text-[14px] font-medium transition',
                     featured
@@ -116,7 +167,7 @@ export default function PricingTable() {
                       : 'border border-line text-text hover:border-dim',
                   ].join(' ')}
                 >
-                  {cta}
+                  {busy === p.id ? 'Opening secure checkout…' : cta}
                 </button>
 
                 <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim">
@@ -130,14 +181,11 @@ export default function PricingTable() {
         })}
       </div>
 
-      <div className="mt-8 rounded-panel border border-line-soft bg-panel/40 px-6 py-5">
-        <div className="legend mb-3 text-[9px] text-dim">Every plan includes</div>
-        <ul className="grid gap-2.5 text-[13.5px] text-muted sm:grid-cols-3">
-          <li className="flex gap-2.5"><Tick /> Full quality, never re-encoded</li>
-          <li className="flex gap-2.5"><Tick /> Up to 4K and 60fps</li>
-          <li className="flex gap-2.5"><Tick /> Your video never leaves your device</li>
-        </ul>
-      </div>
+      {error && (
+        <p className="mx-auto mt-6 max-w-md rounded-lg border border-bad/30 bg-bad/5 px-4 py-3 text-center text-[13px] text-text">
+          {error}
+        </p>
+      )}
 
       <p className="mx-auto mt-8 max-w-2xl text-center text-[12.5px] leading-relaxed text-dim">
         All plans are subscriptions that renew automatically until cancelled. You will see the
@@ -145,138 +193,8 @@ export default function PricingTable() {
         Cancel in two clicks from Account → Billing.
       </p>
 
-      {chosen && (
-        <ConsentDialog plan={chosen} onClose={() => setChosen(null)} />
-      )}
+
     </>
-  );
-}
-
-function ConsentDialog({
-  plan, onClose,
-}: { plan: PlanId; onClose: () => void }) {
-  const p = PLANS[plan];
-  const firstChargeAt = new Date(Date.now() + p.trialDays * 86_400_000);
-  const text = disclosure(p, firstChargeAt);
-
-  const [agreed, setAgreed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function go() {
-    /*
-     * The button used to be `disabled` until the box was ticked. A disabled
-     * control dispatches no click event, so the first press was a genuine silent
-     * no-op with nothing but 40% opacity to explain it — a second, smaller
-     * "click it twice". The consent gate is unchanged and still mandatory; only
-     * the feedback is.
-     */
-    if (!agreed) {
-      setError('Please tick the box above to confirm the subscription terms.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ plan, consented: true }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message ?? 'Checkout could not be started. Please try again.');
-        return;
-      }
-      window.location.href = data.url;
-    } catch {
-      setError('Checkout is temporarily unavailable. Please try again in a moment.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/75 p-6 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Confirm the ${p.name} plan`}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-panel border border-line bg-panel p-8"
-      >
-        <h2 className="text-[1.2rem] font-semibold tracking-[-0.01em]">
-          {p.name} — {money(p.amount)}/{p.interval}
-        </h2>
-
-        {/* The disclosure, adjacent to the control that starts billing. */}
-        <p className="mt-5 rounded-xl border border-line bg-bg-soft px-5 py-4 text-[13.5px] leading-relaxed text-text">
-          {text}
-        </p>
-
-        {/*
-          * No sign-in step. This branch used to divert anyone without an account
-          * to /sign-in?next=/pricing — which lost the chosen plan on the way
-          * back, because it lived in component state, so the user returned to a
-          * bare pricing page and had to pick the same plan again. That was the
-          * whole of "I got the code and then back to the loop".
-          *
-          * Stripe collects the email during checkout and the account is created
-          * from it. What that does NOT do is prove the buyer controls the
-          * address, so paying only signs someone in when the email had no
-          * account already; see lib/billing/claim.ts.
-          */}
-        <p className="mt-5 text-[13px] leading-relaxed text-dim">
-          No account needed first — you will enter your email on the next screen and we will set
-          one up from it.
-        </p>
-
-        <>
-          <label className="mt-6 flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
-              />
-              <span className="text-[13px] leading-relaxed text-muted">
-                I understand this is a subscription that renews automatically at{' '}
-                <span className="text-text">{money(p.amount)} per {p.interval}</span> until I
-                cancel, and that I can cancel any time from Account → Billing.
-              </span>
-            </label>
-
-            {error && (
-              <p className="mt-4 rounded-lg border border-bad/30 bg-bad/5 px-4 py-3 text-[13px] text-text">
-                {error}
-              </p>
-            )}
-
-            <button
-              onClick={go}
-              disabled={busy}
-              className="mt-6 w-full rounded-xl bg-accent px-5 py-3.5 text-[15px] font-medium text-white
-                         transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {busy ? 'Opening secure checkout…' : 'Continue to payment'}
-            </button>
-        </>
-
-        <button
-          onClick={onClose}
-          className="mt-3 w-full rounded-xl px-5 py-2.5 text-[13.5px] text-dim transition hover:text-muted"
-        >
-          Cancel
-        </button>
-
-        <p className="mt-5 text-center text-[11.5px] text-dim">
-          Payments are handled by Stripe. We never see your card details.
-        </p>
-      </div>
-    </div>
   );
 }
 

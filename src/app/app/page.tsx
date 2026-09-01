@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Nav from '@/components/Nav';
 import PricingTable from '@/components/PricingTable';
@@ -61,6 +60,23 @@ export default function AppPage() {
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [autoDownload, setAutoDownload] = useState(false);
   const [resumeNote, setResumeNote] = useState(false);
+  /*
+   * Known before the user presses Download, so the paywall can appear instantly
+   * instead of after a round trip. Display only — /api/patch re-resolves access
+   * server-side on every call, so this being wrong or tampered with changes what
+   * the page looks like and nothing else.
+   */
+  const [entitled, setEntitled] = useState(false);
+
+  const refreshAccess = useCallback(async () => {
+    try {
+      const res = await fetch('/api/me', { cache: 'no-store' });
+      const data = await res.json();
+      setEntitled(Boolean(data.entitled));
+    } catch { /* leave it false; the server decides anyway */ }
+  }, []);
+
+  useEffect(() => { void refreshAccess(); }, [refreshAccess]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Object URLs leak the whole file until revoked, which matters when the file
@@ -89,6 +105,7 @@ export default function AppPage() {
 
     let cancelled = false;
     (async () => {
+      await refreshAccess();
       const f = await takeStashedFile();
       if (cancelled) return;
       if (!f) { setResumeNote(true); return; }
@@ -140,6 +157,20 @@ export default function AppPage() {
 
   async function download() {
     if (!scan || !file) return;
+
+    /*
+     * Check access BEFORE showing any progress. The old order called
+     * /api/patch first, so someone with no subscription watched the button say
+     * "Patching…" — for work that was never going to happen — before being
+     * shown a paywall. Telling someone you are doing a thing you are about to
+     * refuse to do is the wrong way round.
+     */
+    if (!entitled) {
+      void stashFile(file);
+      setPaywall(true);
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await fetch('/api/patch', {
@@ -309,14 +340,17 @@ export default function AppPage() {
                 />
               </div>
 
-              <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-panel border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
+              {/*
+                * Two numbers, not six. Codec, profile, level, bitrate and
+                * duration are all real and all correct, and none of them mean
+                * anything to someone who just wants a file that uploads well.
+                * They are still read and still sent — the patch needs them —
+                * they are simply not the user's problem.
+                */}
+              <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-panel border border-line bg-line">
                 {[
                   ['Resolution', `${scan.width}×${scan.height}`],
-                  ['Frame rate', `${scan.fps.toFixed(2)} fps`],
-                  ['Codec', scan.codec],
-                  ['Profile', scan.profile ? `${scan.profile} @ L${scan.level}` : '—'],
-                  ['Bitrate', `${scan.bitrateMbps.toFixed(1)} Mbps`],
-                  ['Duration', `${scan.durationSec.toFixed(1)}s`],
+                  ['Frame rate', `${scan.fps.toFixed(0)} fps`],
                 ].map(([k, v]) => (
                   <div key={k} className="bg-panel px-4 py-4">
                     <dt className="legend">{k}</dt>
@@ -375,8 +409,7 @@ export default function AppPage() {
                 <div>
                   <h3 className="text-[1.05rem] font-medium">Download your patched file</h3>
                   <p className="mt-1.5 max-w-md text-[13.5px] leading-relaxed text-muted">
-                    Assembled in your browser from the file you already have. The picture is
-                    bit-identical to your export — not one pixel is touched.
+                    Same video, same quality — ready to upload.
                   </p>
                 </div>
                 <button
@@ -390,38 +423,19 @@ export default function AppPage() {
                 </button>
               </div>
 
+              {/*
+                * A receipt, not a spec sheet. The earlier version listed decoy
+                * track, declared sample counts, the multiplier and the edit-list
+                * state — all true, and all meaningless to someone who wants a
+                * file that uploads well. What they need to know is that it
+                * worked and that their picture was not touched.
+                */}
               {receipt && (
-                <div className="mt-6 border-t border-line pt-5">
-                  <div className="flex items-center gap-2">
-                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-good" />
-                    <span className="legend text-[10px] text-good">Patched</span>
-                  </div>
-                  <dl className="tabular mt-3 grid gap-x-8 gap-y-1.5 text-[12.5px] sm:grid-cols-2">
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-dim">Audio track</dt>
-                      <dd>{receipt.clonedTrack ? 'added' : 'existing one used'}</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-dim">Declared samples</dt>
-                      <dd>
-                        {receipt.realSamples.toLocaleString()}
-                        {' → '}
-                        {(receipt.realSamples + receipt.phantomSamples).toLocaleString()}
-                        <span className="text-dim"> ({receipt.multiplier}×)</span>
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-dim">Timeline</dt>
-                      <dd>{receipt.neutralisedEdts ? 'corrected' : 'already correct'}</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-dim">Output</dt>
-                      <dd>{(receipt.outputLen / 1_048_576).toFixed(1)} MB</dd>
-                    </div>
-                  </dl>
-                  <p className="mt-4 text-[12.5px] leading-relaxed text-dim">
-                    Your video track was not touched — the picture is bit-identical to what you
-                    dropped in. Upload this file to TikTok as you normally would.
+                <div className="mt-6 flex items-center gap-3 border-t border-line-soft pt-5">
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-good" />
+                  <p className="text-[13.5px] leading-relaxed text-muted">
+                    <span className="text-good">Saved to your downloads.</span>{' '}
+                    Upload it to TikTok exactly as you normally would — nothing else to do.
                   </p>
                 </div>
               )}
@@ -447,14 +461,15 @@ function Paywall({ onClose }: { onClose: () => void }) {
    */
   return (
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto bg-black/80 p-4 backdrop-blur-sm sm:p-8"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto
+                 bg-black/80 p-4 backdrop-blur-sm sm:p-8"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="mx-auto my-auto w-full max-w-5xl rounded-panel border border-line bg-panel p-6 sm:p-9"
+        className="my-auto w-full max-w-5xl rounded-panel border border-line bg-panel p-6 sm:p-9"
       >
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-[clamp(1.3rem,3vw,1.75rem)] font-semibold tracking-[-0.02em]">

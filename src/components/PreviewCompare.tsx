@@ -53,6 +53,13 @@ function compact(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+/*
+ * Roughly what a phone shows, in physical pixels across. Both renditions are
+ * scaled to this before anyone sees them, so it is the denominator that makes
+ * the comparison honest.
+ */
+const PHONE_SCREEN_PX = 1080;
+
 const Heart = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" className={className}>
     <path d="M12 20.8 3.9 12.9a4.8 4.8 0 0 1 6.8-6.8l1.3 1.3 1.3-1.3a4.8 4.8 0 0 1 6.8 6.8Z" fill="currentColor" />
@@ -87,17 +94,36 @@ export default function PreviewCompare({
     const size = () => {
       if (!v.videoWidth) return;
       const shortEdge = Math.min(v.videoWidth, v.videoHeight);
-      // The reduction TikTok actually applies, as a factor. Never above 1: if the
-      // source is already below the rung, claiming it gets worse would be a lie
-      // in our own favour.
-      const reduction = Math.min(1, targetShortEdge / shortEdge);
-      const displayW = wrap.clientWidth || 300;
       const aspect = v.videoHeight / v.videoWidth;
-      // Apply that same factor to the size actually on screen, so the visible
-      // detail loss matches the real one instead of being hidden by the fact that
-      // a phone mock is smaller than a phone.
-      c.width = Math.max(16, Math.round(displayW * reduction));
-      c.height = Math.max(16, Math.round(displayW * reduction * aspect));
+
+      /*
+       * The reduction is relative to the SCREEN, not to the source.
+       *
+       * The first version compared the delivered rung to the source — 720
+       * against 2160 — and drew the crushed side at a third of the width. That
+       * is not what anyone sees. Nobody watches a 4K file at 4K on a phone: both
+       * versions are displayed on a screen about 1080 physical pixels wide. So
+       * the real comparison is 720 upscaled to 1080 (a 1.5x stretch) against a
+       * source that already meets or exceeds 1080. A third was roughly four
+       * times too destructive, which is why the text was unreadable.
+       *
+       * Capped at 1: a source already below the rung is not made worse by it,
+       * and pretending otherwise would be a lie in our own favour.
+       */
+      const delivered = Math.min(shortEdge, targetShortEdge);
+      // What the CLEAN side manages on the same screen. Comparing against the
+      // screen alone was still wrong: a 720p source delivered at 720p loses
+      // nothing, but dividing by 1080 claimed a 1.5x stretch that both halves
+      // would suffer equally. The difference is only ever delivered-vs-clean.
+      const clean = Math.min(shortEdge, PHONE_SCREEN_PX);
+      const reduction = Math.min(1, delivered / clean);
+
+      // Work in device pixels, or a 2x screen hides the difference entirely.
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 3) : 1;
+      const physicalW = (wrap.clientWidth || 300) * dpr;
+
+      c.width = Math.max(16, Math.round(physicalW * reduction));
+      c.height = Math.max(16, Math.round(physicalW * reduction * aspect));
     };
 
     const draw = () => {
@@ -147,7 +173,7 @@ export default function PreviewCompare({
     };
   }, [dragging, setFromClientX]);
 
-  const crushedSpec = `${Math.round(targetShortEdge)}×${Math.round(targetShortEdge * (height / width))} · ${targetFps}fps`;
+  const crushedSpec = `${Math.round(targetShortEdge)}×${Math.round(targetShortEdge * (height / width))} · ${targetFps}fps · 2.9 Mbps`;
   const pristineSpec = `${width}×${height} · ${fps.toFixed(0)}fps · ${bitrateMbps.toFixed(1)} Mbps`;
 
   return (
@@ -237,7 +263,10 @@ export default function PreviewCompare({
       </div>
 
       <p className="mt-4 text-center text-[11.5px] leading-relaxed text-dim">
-        Drag to compare. Like counts are illustrative.
+        Drag to compare. This shows the resolution and frame rate you lose; the drop from{' '}
+        <span className="tabular text-muted">{bitrateMbps.toFixed(1)}</span> to{' '}
+        <span className="tabular text-muted">2.9 Mbps</span> of compression is not simulated,
+        and on real footage it is the larger difference. Like counts are illustrative.
       </p>
     </div>
   );

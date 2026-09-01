@@ -209,7 +209,25 @@ export async function POST(req: Request) {
       ? { automatic_tax: { enabled: true }, customer_update: { address: 'auto', name: 'auto' } }
       : {}),
 
+    // Renders directly above Stripe's Subscribe button — the control that
+    // actually starts billing, which is where the disclosure belongs.
     custom_text: { submit: { message: text } },
+
+    /*
+     * An affirmative, unticked acceptance checkbox on Stripe's page, replacing
+     * the one that used to be in our own modal. California's ARL wants
+     * affirmative consent and prohibits a pre-ticked box; Stripe's is neither
+     * pre-ticked nor skippable.
+     *
+     * Gated behind an env var because Stripe REJECTS the session outright unless
+     * a Terms of Service URL is configured in the dashboard (Settings → Public
+     * details). Turning this on before that is set would break every checkout,
+     * so it stays off until the setting exists — the same reasoning as
+     * STRIPE_AUTOMATIC_TAX above.
+     */
+    ...(process.env.STRIPE_TOS_CONSENT === '1'
+      ? { consent_collection: { terms_of_service: 'required' as const } }
+      : {}),
 
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
     // No query string. Everything needed on return is in the claim cookie, and

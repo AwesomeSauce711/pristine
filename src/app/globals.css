@@ -171,3 +171,38 @@ body {
   color: #fff;
   font-size: 14px;
 }
+
+/*
+ * The annual plan's number.
+ *
+ * The tiers differ by one thing — how many videos a day — so that number is
+ * what the eye should land on, and it should get more emphatic as the plan
+ * does. Weekly is plain, monthly takes the accent, and annual animates.
+ *
+ * background-clip: text over a moving gradient, rather than an animated colour,
+ * so the hue sweeps ACROSS the glyphs instead of the whole number pulsing. The
+ * gradient is 300% wide and slides by two thirds, which puts the loop point in
+ * the middle of the sweep where it cannot be seen.
+ */
+@keyframes pristine-rainbow {
+  0%   { background-position:   0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.rainbow-number {
+  background-image: linear-gradient(
+    100deg,
+    #ff5d8f, #ffb020, #35d07f, #3ecbff, #7c5cff, #ff5d8f
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pristine-rainbow 6s linear infinite;
+}
+
+/* Someone who has asked for less motion should get a still gradient, not a
+   still grey number — the emphasis survives, the movement does not. */
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-number { animation: none; background-position: 40% 50%; }
+}
