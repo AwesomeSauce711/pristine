@@ -19,7 +19,8 @@
     "stripe:listen": "node --env-file-if-exists=.env.local scripts/stripe-listen.mjs",
     "verify:elst": "tsx --conditions=react-server scripts/verify-elst.mts",
     "method:status": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/method-status.mts",
-    "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts"
+    "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts",
+    "db:reset-test": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/reset-test-data.mts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
