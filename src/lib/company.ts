@@ -19,7 +19,23 @@ export interface Company {
   legalName: string;
   /** Trading name shown to customers. */
   tradingName: string;
-  /** Registered address, single line. */
+  /**
+   * Registered address, single line. OPTIONAL.
+   *
+   * A street address is the strongest form of merchant identification and the
+   * conservative reading of card-network rules expects one. But for a sole
+   * proprietor the only address that exists is where they live, and publishing
+   * a home address on a site advertised to strangers is its own risk — a real
+   * one, not a compliance abstraction.
+   *
+   * So this is not required to launch. What IS required is that a customer can
+   * identify who charged them and reach a human: a trading name, a country, and
+   * a monitored support address. That is what most small digital sellers
+   * publish, and it is what the pages fall back to when this is empty.
+   *
+   * Fill it in when there is somewhere to point at that is not a bedroom — a
+   * virtual mailbox, a PO Box, or a registered agent once an entity exists.
+   */
   address: string;
   /** Country of establishment — determines which consumer rules apply. */
   country: string;
@@ -48,8 +64,14 @@ export const COMPANY: Company = {
 
 /** Which required details are still placeholders. */
 export function missingCompanyDetails(): string[] {
+  /*
+   * `address` is deliberately absent. See the note on the field: a home address
+   * is worse than no address for a one-person business, and identification plus
+   * a working contact route is the part that actually matters to a customer
+   * trying to find out who charged them.
+   */
   const required: (keyof Company)[] = [
-    'legalName', 'address', 'country', 'supportEmail', 'privacyEmail',
+    'legalName', 'country', 'supportEmail', 'privacyEmail',
   ];
   return required.filter((k) => !COMPANY[k] || COMPANY[k] === PLACEHOLDER);
 }
