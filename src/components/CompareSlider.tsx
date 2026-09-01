@@ -28,7 +28,17 @@ interface Props {
   afterPoster: string;
 }
 
-const MAX_DRIFT_SEC = 0.12;
+/*
+ * 0.12s was too loose — roughly seven frames at 60fps, which is plainly visible
+ * as the two halves showing different moments. Two frames is under the threshold
+ * where a viewer reads it as lag rather than as a comparison.
+ *
+ * This slider genuinely needs two elements: the halves are two DIFFERENT files
+ * (what TikTok served for a patched upload versus an unpatched one), so unlike
+ * the in-app preview there is no single source to draw both from. Correction is
+ * the only option here.
+ */
+const MAX_DRIFT_SEC = 0.034;
 
 export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, afterPoster }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);

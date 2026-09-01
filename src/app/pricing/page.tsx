@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Nav from '@/components/Nav';
 import PricingTable from '@/components/PricingTable';
-import { currentUser } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'Pricing',
@@ -10,7 +9,6 @@ export const metadata: Metadata = {
 };
 
 export default async function PricingPage() {
-  const user = await currentUser();
 
   return (
     <>
@@ -26,7 +24,7 @@ export default async function PricingPage() {
           </p>
         </div>
 
-        <PricingTable interactive signedIn={!!user} />
+        <PricingTable />
 
         <section className="mx-auto mt-24 max-w-2xl">
           <h2 className="text-[1.3rem] font-semibold tracking-[-0.01em]">Before you subscribe</h2>

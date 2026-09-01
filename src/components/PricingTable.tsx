@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useState } from 'react';
 import { PLANS, PLAN_ORDER, annualSavingPct, disclosure, money, type PlanId } from '@/lib/plans';
 
@@ -20,13 +19,21 @@ import { PLANS, PLAN_ORDER, annualSavingPct, disclosure, money, type PlanId } fr
  * because a pre-checked one is prohibited under California's ARL.
  */
 
-interface Props {
-  /** When false, cards link to the app instead of starting checkout. */
-  interactive?: boolean;
-  signedIn?: boolean;
-}
-
-export default function PricingTable({ interactive = false, signedIn = false }: Props) {
+/*
+ * There is no `interactive` prop any more, and its absence is the fix for
+ * "I have to click start free trial twice".
+ *
+ * It used to default to false, in which mode the CTA was a <Link href="/pricing">
+ * carrying the SAME label as the real button. The homepage rendered that dead
+ * version, and every route in — the nav, the hero, and the tool's paywall —
+ * pointed at the homepage. So click one navigated to a page showing an
+ * identical card with an identical button, and click two finally opened the
+ * dialog. The first click was never a button.
+ *
+ * `signedIn` is gone too: with anonymous checkout everybody gets the same
+ * disclosure, the same checkbox and the same payment control.
+ */
+export default function PricingTable() {
   const [chosen, setChosen] = useState<PlanId | null>(null);
 
   return (
@@ -75,41 +82,42 @@ export default function PricingTable({ interactive = false, signedIn = false }: 
 
               <p className="mt-4 text-[13.5px] leading-relaxed text-muted">{p.blurb}</p>
 
-              <ul className="mt-6 space-y-2.5 text-[13.5px] text-muted">
-                <li className="flex gap-2.5"><Tick /> Full quality, no re-encode</li>
-                <li className="flex gap-2.5"><Tick /> Up to 4K and 60fps</li>
-                <li className="flex gap-2.5">
-                  <Tick /><span><span className="tabular">{p.dailyPatchCap}</span> videos per day</span>
-                </li>
-                <li className="flex gap-2.5"><Tick /> Your video never leaves your device</li>
-              </ul>
+              {/*
+                * The one number that differs between plans, given the weight that
+                * implies. The previous version listed it as the third of four
+                * bullets, three of which were identical on every card — which is
+                * a layout that tells someone the plans are the same and the
+                * cheapest is therefore correct. What every plan shares is stated
+                * once, under the grid, where repeating it cannot flatten the
+                * comparison.
+                */}
+              <div className="mt-6 flex items-baseline gap-2">
+                <span className={`tabular text-[2.1rem] font-semibold leading-none tracking-[-0.03em] ${
+                  featured ? 'text-accent-soft' : 'text-text'
+                }`}>
+                  {p.dailyPatchCap}
+                </span>
+                <span className="text-[13.5px] leading-tight text-muted">
+                  {p.dailyPatchCap === 1 ? 'video' : 'videos'}<br />per day
+                </span>
+              </div>
+
+              <p className="mt-4 text-[12.5px] leading-relaxed text-dim">
+                {p.periodPatchCap.toLocaleString()} per {p.interval} in total.
+              </p>
 
               <div className="mt-7 border-t border-line-soft pt-6">
-                {interactive ? (
-                  <button
-                    onClick={() => setChosen(p.id)}
-                    className={[
-                      'block w-full rounded-xl px-5 py-3 text-center text-[14px] font-medium transition',
-                      featured
-                        ? 'bg-accent text-white hover:bg-accent-soft'
-                        : 'border border-line text-text hover:border-dim',
-                    ].join(' ')}
-                  >
-                    {cta}
-                  </button>
-                ) : (
-                  <Link
-                    href="/pricing"
-                    className={[
-                      'block rounded-xl px-5 py-3 text-center text-[14px] font-medium transition',
-                      featured
-                        ? 'bg-accent text-white hover:bg-accent-soft'
-                        : 'border border-line text-text hover:border-dim',
-                    ].join(' ')}
-                  >
-                    {cta}
-                  </Link>
-                )}
+                <button
+                  onClick={() => setChosen(p.id)}
+                  className={[
+                    'block w-full rounded-xl px-5 py-3 text-center text-[14px] font-medium transition',
+                    featured
+                      ? 'bg-accent text-white hover:bg-accent-soft'
+                      : 'border border-line text-text hover:border-dim',
+                  ].join(' ')}
+                >
+                  {cta}
+                </button>
 
                 <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim">
                   {p.trialDays > 0
@@ -122,22 +130,31 @@ export default function PricingTable({ interactive = false, signedIn = false }: 
         })}
       </div>
 
-      <p className="mx-auto mt-10 max-w-2xl text-center text-[12.5px] leading-relaxed text-dim">
+      <div className="mt-8 rounded-panel border border-line-soft bg-panel/40 px-6 py-5">
+        <div className="legend mb-3 text-[9px] text-dim">Every plan includes</div>
+        <ul className="grid gap-2.5 text-[13.5px] text-muted sm:grid-cols-3">
+          <li className="flex gap-2.5"><Tick /> Full quality, never re-encoded</li>
+          <li className="flex gap-2.5"><Tick /> Up to 4K and 60fps</li>
+          <li className="flex gap-2.5"><Tick /> Your video never leaves your device</li>
+        </ul>
+      </div>
+
+      <p className="mx-auto mt-8 max-w-2xl text-center text-[12.5px] leading-relaxed text-dim">
         All plans are subscriptions that renew automatically until cancelled. You will see the
         exact amount and the exact date of your first charge before entering any card details.
         Cancel in two clicks from Account → Billing.
       </p>
 
       {chosen && (
-        <ConsentDialog plan={chosen} signedIn={signedIn} onClose={() => setChosen(null)} />
+        <ConsentDialog plan={chosen} onClose={() => setChosen(null)} />
       )}
     </>
   );
 }
 
 function ConsentDialog({
-  plan, signedIn, onClose,
-}: { plan: PlanId; signedIn: boolean; onClose: () => void }) {
+  plan, onClose,
+}: { plan: PlanId; onClose: () => void }) {
   const p = PLANS[plan];
   const firstChargeAt = new Date(Date.now() + p.trialDays * 86_400_000);
   const text = disclosure(p, firstChargeAt);
@@ -147,6 +164,17 @@ function ConsentDialog({
   const [error, setError] = useState('');
 
   async function go() {
+    /*
+     * The button used to be `disabled` until the box was ticked. A disabled
+     * control dispatches no click event, so the first press was a genuine silent
+     * no-op with nothing but 40% opacity to explain it — a second, smaller
+     * "click it twice". The consent gate is unchanged and still mandatory; only
+     * the feedback is.
+     */
+    if (!agreed) {
+      setError('Please tick the box above to confirm the subscription terms.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -189,22 +217,25 @@ function ConsentDialog({
           {text}
         </p>
 
-        {!signedIn ? (
-          <>
-            <p className="mt-6 text-[13.5px] leading-relaxed text-muted">
-              You will need an account so your subscription can be tied to something. It takes
-              one email code — no password.
-            </p>
-            <Link
-              href={`/sign-in?next=${encodeURIComponent('/pricing')}`}
-              className="mt-6 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
-            >
-              Continue
-            </Link>
-          </>
-        ) : (
-          <>
-            <label className="mt-6 flex cursor-pointer items-start gap-3">
+        {/*
+          * No sign-in step. This branch used to divert anyone without an account
+          * to /sign-in?next=/pricing — which lost the chosen plan on the way
+          * back, because it lived in component state, so the user returned to a
+          * bare pricing page and had to pick the same plan again. That was the
+          * whole of "I got the code and then back to the loop".
+          *
+          * Stripe collects the email during checkout and the account is created
+          * from it. What that does NOT do is prove the buyer controls the
+          * address, so paying only signs someone in when the email had no
+          * account already; see lib/billing/claim.ts.
+          */}
+        <p className="mt-5 text-[13px] leading-relaxed text-dim">
+          No account needed first — you will enter your email on the next screen and we will set
+          one up from it.
+        </p>
+
+        <>
+          <label className="mt-6 flex cursor-pointer items-start gap-3">
               <input
                 type="checkbox"
                 checked={agreed}
@@ -226,14 +257,13 @@ function ConsentDialog({
 
             <button
               onClick={go}
-              disabled={!agreed || busy}
+              disabled={busy}
               className="mt-6 w-full rounded-xl bg-accent px-5 py-3.5 text-[15px] font-medium text-white
                          transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? 'Opening secure checkout…' : 'Continue to payment'}
             </button>
-          </>
-        )}
+        </>
 
         <button
           onClick={onClose}

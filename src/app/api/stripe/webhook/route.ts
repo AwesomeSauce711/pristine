@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import { db, schema } from '@/db';
 import { revokeAllSessions } from '@/lib/auth';
+import { resolvePendingCheckout } from '@/lib/billing/claim';
 import { saveEvidence } from '@/lib/billing/dispute-evidence';
 import { stripe } from '@/lib/billing/stripe';
 import {
@@ -142,7 +143,14 @@ async function handle(event: Stripe.Event): Promise<void> {
      */
     case 'checkout.session.completed': {
       const s = event.data.object;
-      const userId = s.client_reference_id;
+      /*
+       * client_reference_id is a user id ONLY for a signed-in checkout. An
+       * anonymous one carries `pc_<pending id>`, which is not a user and is not
+       * even a UUID — passing it to a uuid column throws a cast error and fails
+       * the whole webhook, so it has to be filtered here rather than relied on.
+       */
+      const ref = s.client_reference_id;
+      const userId = ref && !ref.startsWith('pc_') ? ref : null;
       const customerId = typeof s.customer === 'string' ? s.customer : s.customer?.id;
 
       if (userId && customerId) {
@@ -155,9 +163,39 @@ async function handle(event: Stripe.Event): Promise<void> {
           .set({ userId })
           .where(eq(schema.consents.id, s.metadata.consent_id));
       }
+
+      /*
+       * ANONYMOUS CHECKOUT: this is where the account comes into existence.
+       *
+       * Authoritative on purpose — the webhook is the one path Stripe retries
+       * for three days, so an account is created even if the buyer closes the
+       * tab before returning. The claim on /welcome does the same work if it
+       * gets there first; both are idempotent and the pending row arbitrates.
+       *
+       * The user is created but NEVER marked email-verified. Stripe collected
+       * the address; nothing has proved anyone reads it.
+       */
+      const resolved = await resolvePendingCheckout(
+        s.id,
+        s.customer_details?.email,
+        null,
+      );
+      const effectiveUserId = userId ?? resolved?.userId ?? null;
+
+      /*
+       * An anonymous checkout has no Customer of ours attached, so link the one
+       * Stripe made. Without this, every later customer.* event for this buyer
+       * resolves to nobody.
+       */
+      if (effectiveUserId && customerId) {
+        await db().update(schema.users)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(schema.users.id, effectiveUserId));
+      }
+
       const subId = typeof s.subscription === 'string' ? s.subscription : s.subscription?.id;
       if (subId) await syncSubscription(subId, at);
-      if (subId && userId) await recordTrialGrant(userId, subId, s);
+      if (subId && effectiveUserId) await recordTrialGrant(effectiveUserId, subId, s);
       return;
     }
 

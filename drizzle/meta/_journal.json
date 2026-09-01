@@ -29,6 +29,13 @@
       "when": 1788279108255,
       "tag": "0003_wonderful_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788295006760,
+      "tag": "0004_lethal_quicksilver",
+      "breakpoints": true
     }
   ]
 }

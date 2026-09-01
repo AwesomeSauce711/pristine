@@ -6,89 +6,64 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * One phone, one video, a slider down the middle.
  *
  * WHY ONE VIDEO ELEMENT AND NOT TWO
- * The earlier version put two <video> elements side by side and they drifted —
- * visibly, within a few seconds, because nothing keeps independent media
- * elements on the same clock. You can correct drift by nudging currentTime, but
- * it never looks right and it never fully stops.
+ * Two <video> elements have two clocks and drift within seconds; nudging
+ * currentTime to correct it never quite looks right. Here the clean side IS the
+ * video element and the crushed side is a canvas drawing FROM that same element,
+ * so the halves cannot disagree about which frame it is. Sync is structural, not
+ * maintained. It also halves the decode cost, which matters on a phone.
  *
- * Here the clean side IS the video element, and the crushed side is a canvas
- * drawing FROM that same element. There is one clock, so the two halves cannot
- * disagree about which frame it is — sync is structural rather than maintained.
- * It also halves the decode cost, which matters on the phone this is aimed at.
+ * WHY THE CANVAS IS SIZED BY RATIO, NOT BY PIXELS
+ * The obvious implementation draws the crushed side at TikTok's actual delivery
+ * resolution — 720 on the short edge — and it is invisible. The phone mock is
+ * about 300 CSS pixels wide, so a 720px canvas is still 2.4x sharper than the
+ * screen showing it, and both halves look identical. Absolute pixels are the
+ * wrong unit at preview scale.
  *
- * THE CRUSHED SIDE IS A REAL DOWNSCALE, NOT A BLUR
- * The canvas is sized to TikTok's measured delivery rung and redrawn only at its
- * measured frame rate, so both the detail loss and the motion loss follow from
- * the numbers TikTok actually served. A CSS blur would be a guess at what
- * compression looks like; this is what a lower rendition is.
+ * What is true at every scale is the RATIO: TikTok turns 2160 into 720, a 3x
+ * linear reduction, throwing away 8/9ths of the detail. So the canvas is sized to
+ * apply that same reduction relative to the display size — 3x fewer pixels across
+ * the width actually on screen. That is an honest rendering of the same loss, and
+ * unlike a blur it is a real downscale-and-upscale, which is what a lower
+ * rendition physically is.
  *
- * THE ENGAGEMENT NUMBERS ARE ILLUSTRATIVE and labelled as such below the frame.
- * They exist to make the comparison legible, not to imply an outcome.
+ * The frame rate is simulated the same way: each frame is held for the full
+ * 1/30s interval, so motion is genuinely sampled at the lower rate.
  *
+ * ENGAGEMENT NUMBERS ARE ILLUSTRATIVE and labelled as such under the frame.
  * Deliberately generic chrome — no TikTok logo, wordmark or copied iconography.
  */
 
-interface Stats { likes: number; comments: number; shares: number }
-
 interface Props {
   src: string;
-  /** Real, read from the user's own file. */
   width: number;
   height: number;
   fps: number;
   bitrateMbps: number;
-  crushed: Stats;
-  pristine: Stats;
+  crushedLikes: number;
+  pristineLikes: number;
+  handle?: string;
+  sound?: string;
   targetShortEdge?: number;
   targetFps?: number;
 }
 
 function compact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toLocaleString('en-US');
 }
 
-/* Drawn from scratch — the shared vocabulary of vertical video, not anyone's artwork. */
-const Heart = () => (
-  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-    <path d="M12 20.5 4.2 13a4.6 4.6 0 0 1 6.5-6.5l1.3 1.3 1.3-1.3A4.6 4.6 0 0 1 19.8 13Z" fill="currentColor" />
+const Heart = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" className={className}>
+    <path d="M12 20.8 3.9 12.9a4.8 4.8 0 0 1 6.8-6.8l1.3 1.3 1.3-1.3a4.8 4.8 0 0 1 6.8 6.8Z" fill="currentColor" />
   </svg>
 );
-const Bubble = () => (
-  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-    <path d="M3.5 11.4C3.5 7.3 7.3 4 12 4s8.5 3.3 8.5 7.4-3.8 7.4-8.5 7.4a10 10 0 0 1-2.4-.3L5.4 20l.9-2.9a7 7 0 0 1-2.8-5.7Z" fill="currentColor" />
-  </svg>
-);
-const Arrow = () => (
-  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-    <path d="M13 4.5 21 12l-8 7.5V15c-4.4 0-7.4 1.3-9.5 4 .6-5.6 3.9-9.4 9.5-9.9Z" fill="currentColor" />
-  </svg>
-);
-
-function Rail({ stats, side }: { stats: Stats; side: 'crushed' | 'pristine' }) {
-  const rows: [React.ReactNode, number][] = [
-    [<Heart key="h" />, stats.likes],
-    [<Bubble key="c" />, stats.comments],
-    [<Arrow key="s" />, stats.shares],
-  ];
-  return (
-    <div className={`flex flex-col gap-3.5 ${side === 'crushed' ? 'text-white/60' : 'text-white'}`}>
-      {rows.map(([icon, n], i) => (
-        <div key={i} className="flex flex-col items-center gap-0.5">
-          {icon}
-          <span className={`tabular text-[10.5px] leading-none ${side === 'pristine' ? 'font-semibold' : ''}`}>
-            {compact(n)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function PreviewCompare({
-  src, width, height, fps, bitrateMbps, crushed, pristine,
+  src, width, height, fps, bitrateMbps,
+  crushedLikes, pristineLikes,
+  handle = '@yourhandle',
+  sound = 'original sound — your edit',
   targetShortEdge = 720, targetFps = 30,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -97,11 +72,11 @@ export default function PreviewCompare({
   const [pos, setPos] = useState(50);
   const [dragging, setDragging] = useState(false);
 
-  /* ---- the crushed canvas, driven by the SAME element ------------------- */
   useEffect(() => {
     const v = videoRef.current;
     const c = canvasRef.current;
-    if (!v || !c) return;
+    const wrap = wrapRef.current;
+    if (!v || !c || !wrap) return;
     const ctx = c.getContext('2d', { alpha: false });
     if (!ctx) return;
 
@@ -111,18 +86,25 @@ export default function PreviewCompare({
 
     const size = () => {
       if (!v.videoWidth) return;
-      // Never scale up: if the source is already below the rung, pretending it
-      // improves would be a lie in our own favour.
-      const s = Math.min(1, targetShortEdge / Math.min(v.videoWidth, v.videoHeight));
-      c.width = Math.max(2, Math.round(v.videoWidth * s));
-      c.height = Math.max(2, Math.round(v.videoHeight * s));
+      const shortEdge = Math.min(v.videoWidth, v.videoHeight);
+      // The reduction TikTok actually applies, as a factor. Never above 1: if the
+      // source is already below the rung, claiming it gets worse would be a lie
+      // in our own favour.
+      const reduction = Math.min(1, targetShortEdge / shortEdge);
+      const displayW = wrap.clientWidth || 300;
+      const aspect = v.videoHeight / v.videoWidth;
+      // Apply that same factor to the size actually on screen, so the visible
+      // detail loss matches the real one instead of being hidden by the fact that
+      // a phone mock is smaller than a phone.
+      c.width = Math.max(16, Math.round(displayW * reduction));
+      c.height = Math.max(16, Math.round(displayW * reduction * aspect));
     };
 
     const draw = () => {
       if (v.readyState >= 2) {
-        // Hold each frame for the whole simulated interval, so motion is really
-        // sampled at the lower rate rather than just looking soft.
-        const due = lastDrawn < 0 || v.currentTime - lastDrawn >= interval || v.currentTime < lastDrawn;
+        const due = lastDrawn < 0
+          || v.currentTime - lastDrawn >= interval
+          || v.currentTime < lastDrawn;
         if (due && c.width > 0) {
           lastDrawn = v.currentTime;
           ctx.drawImage(v, 0, 0, c.width, c.height);
@@ -133,11 +115,17 @@ export default function PreviewCompare({
 
     v.addEventListener('loadedmetadata', size);
     if (v.videoWidth) size();
+    const ro = new ResizeObserver(size);
+    ro.observe(wrap);
+
     raf = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf); v.removeEventListener('loadedmetadata', size); };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      v.removeEventListener('loadedmetadata', size);
+    };
   }, [src, targetShortEdge, targetFps]);
 
-  /* ---- dragging ---------------------------------------------------------- */
   const setFromClientX = useCallback((clientX: number) => {
     const el = wrapRef.current;
     if (!el) return;
@@ -159,17 +147,18 @@ export default function PreviewCompare({
     };
   }, [dragging, setFromClientX]);
 
-  const real = `${width}×${height} · ${fps.toFixed(0)}fps · ${bitrateMbps.toFixed(1)} Mbps`;
+  const crushedSpec = `${Math.round(targetShortEdge)}×${Math.round(targetShortEdge * (height / width))} · ${targetFps}fps`;
+  const pristineSpec = `${width}×${height} · ${fps.toFixed(0)}fps · ${bitrateMbps.toFixed(1)} Mbps`;
 
   return (
-    <div className="mx-auto w-full max-w-[300px]">
+    <div className="mx-auto w-full max-w-[320px]">
       <div
         ref={wrapRef}
         onPointerDown={(e) => { setDragging(true); setFromClientX(e.clientX); }}
-        className="relative aspect-[9/19.5] w-full select-none overflow-hidden rounded-[30px]
-                   border border-line bg-black shadow-2xl touch-none"
+        className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
+                   rounded-[32px] border border-line bg-black shadow-2xl"
       >
-        {/* The clean side is the video itself — one element, one clock. */}
+        {/* Clean side — the video itself. One element, one clock. */}
         <video
           ref={videoRef}
           src={src}
@@ -177,63 +166,78 @@ export default function PreviewCompare({
           className="absolute inset-0 h-full w-full object-cover"
         />
 
-        {/* The crushed side, clipped to the left of the handle. */}
-        <div
-          className="absolute inset-0"
-          style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
-        >
+        {/* Crushed side, clipped to the left of the handle. */}
+        <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
           <canvas
             ref={canvasRef}
             className="absolute inset-0 h-full w-full object-cover"
-            style={{ imageRendering: 'auto', filter: 'saturate(.82) contrast(.96)' }}
+            style={{ imageRendering: 'auto', filter: 'saturate(.8) contrast(.93) brightness(.94)' }}
           />
-          <div className="absolute inset-0 bg-black/25" />
         </div>
 
-        {/* ---- crushed overlay ---- */}
-        <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-          <div className="absolute right-3 bottom-24"><Rail stats={crushed} side="crushed" /></div>
-          <div className="absolute inset-x-0 bottom-0 p-3.5">
-            <div className="legend text-[9px] text-white/50">Uploaded normally</div>
-            <div className="tabular mt-1 text-[10.5px] text-white/70">720×1280 · 30fps · 2.9 Mbps</div>
+        {/* Legibility wash, top and bottom, over both halves. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
+
+        {/* ---- headers: always both visible, so the comparison reads at a glance ---- */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 p-3">
+          <div className="max-w-[46%]">
+            <div className="legend text-[8.5px] leading-tight text-white/55">Without Pristine</div>
+            <div className="tabular mt-1 text-[9.5px] leading-tight text-white/75">{crushedSpec}</div>
+          </div>
+          <div className="max-w-[52%] text-right">
+            <div className="legend text-[8.5px] leading-tight text-accent-soft">With Pristine</div>
+            <div className="tabular mt-1 text-[9.5px] font-medium leading-tight text-white">{pristineSpec}</div>
           </div>
         </div>
 
-        {/* ---- pristine overlay ---- */}
-        <div className="absolute inset-0" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-          <div className="absolute right-3 bottom-24"><Rail stats={pristine} side="pristine" /></div>
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3.5">
-            <div className="legend text-[9px] text-accent-soft">With Pristine</div>
-            <div className="tabular mt-1 text-[10.5px] font-medium text-white">{real}</div>
+        {/* ---- like counters: one per side, red on the good one ---- */}
+        <div className="pointer-events-none absolute bottom-32 left-3 flex flex-col items-center gap-1 text-white/45">
+          <Heart />
+          <span className="tabular text-[11px] leading-none">{compact(crushedLikes)}</span>
+        </div>
+        <div className="pointer-events-none absolute right-3 bottom-32 flex flex-col items-center gap-1">
+          <Heart className="text-[#fe2c55] drop-shadow-[0_0_10px_rgba(254,44,85,0.55)]" />
+          <span className="tabular text-[12px] font-semibold leading-none text-white">
+            {compact(pristineLikes)}
+          </span>
+        </div>
+
+        {/* ---- caption: the same post either way, so it spans both halves ---- */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3.5">
+          <div className="text-[12px] font-semibold text-white">{handle}</div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-white/80">
+            <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" className="shrink-0">
+              <path d="M9 18V6l10-2v12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+              <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
+              <circle cx="16.5" cy="16" r="2.5" fill="currentColor" />
+            </svg>
+            <span className="truncate">{sound}</span>
           </div>
         </div>
 
-        {/* ---- the handle ---- */}
+        {/* ---- handle ---- */}
         <div className="pointer-events-none absolute inset-y-0" style={{ left: `${pos}%` }}>
-          <div className="absolute inset-y-0 -left-px w-0.5 bg-white/85" />
-          <div
-            className="absolute top-1/2 -left-[17px] grid h-[34px] w-[34px] -translate-y-1/2
-                       place-items-center rounded-full bg-white text-black shadow-lg"
-          >
-            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-              <path d="M9.5 7.5 5 12l4.5 4.5M14.5 7.5 19 12l-4.5 4.5"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                    strokeLinejoin="round" fill="none" />
+          <div className="absolute inset-y-0 -left-px w-0.5 bg-white/90" />
+          <div className="absolute top-1/2 -left-[18px] grid h-9 w-9 -translate-y-1/2 place-items-center
+                          rounded-full bg-white text-black shadow-lg">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M9.5 7.5 5 12l4.5 4.5M14.5 7.5 19 12l-4.5 4.5" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
             </svg>
           </div>
         </div>
 
-        {/* Keyboard-operable equivalent of the drag. */}
         <input
           type="range" min={0} max={100} value={Math.round(pos)}
           onChange={(e) => setPos(Number(e.target.value))}
-          aria-label="Compare normal upload with Pristine"
+          aria-label="Compare an ordinary upload with Pristine"
           className="absolute inset-x-0 bottom-0 h-10 w-full cursor-ew-resize opacity-0"
         />
       </div>
 
       <p className="mt-4 text-center text-[11.5px] leading-relaxed text-dim">
-        Drag to compare. Engagement numbers are illustrative.
+        Drag to compare. Like counts are illustrative.
       </p>
     </div>
   );

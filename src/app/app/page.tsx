@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Nav from '@/components/Nav';
+import PricingTable from '@/components/PricingTable';
 import PreviewCompare from '@/components/PreviewCompare';
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { assemble, scanFile, type ScanResult } from '@/lib/mp4/scan';
+import { clearStash, stashFile, takeStashedFile } from '@/lib/stash';
 
 /*
  * The tool.
@@ -57,11 +59,58 @@ export default function AppPage() {
   const [busy, setBusy] = useState(false);
   const [paywall, setPaywall] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [autoDownload, setAutoDownload] = useState(false);
+  const [resumeNote, setResumeNote] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Object URLs leak the whole file until revoked, which matters when the file
   // is 500 MB and someone tries a few in a row.
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  /*
+   * COMING BACK FROM STRIPE.
+   *
+   * The claim route sends a successful checkout to /app?resume=1. The file the
+   * user dropped was stashed just before they left, so it is restored here and
+   * the download fires on its own — no re-selecting, no second Download press.
+   * That round trip is what "I had to go through the whole process again" was.
+   *
+   * If nothing was stashed (quota, private window, a different browser) the page
+   * simply shows the normal dropzone with a line explaining what to do. Paid
+   * access is already on the account either way, so the second attempt succeeds.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('resume') !== '1') return;
+
+    // Drop the flag immediately so a refresh does not try to resume twice.
+    window.history.replaceState(null, '', '/app');
+
+    let cancelled = false;
+    (async () => {
+      const f = await takeStashedFile();
+      if (cancelled) return;
+      if (!f) { setResumeNote(true); return; }
+      setAutoDownload(true);
+      await take(f);
+    })();
+    return () => { cancelled = true; };
+    // `take` is stable for the life of the component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /*
+   * Fire the download once the restored file has finished scanning. Separate
+   * from the effect above because scanning is async and sets state; calling
+   * download() before `scan` exists would patch nothing.
+   */
+  useEffect(() => {
+    if (!autoDownload || stage !== 'ready' || !scan || busy) return;
+    setAutoDownload(false);
+    void download();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDownload, stage, scan, busy]);
 
   const take = useCallback(async (f: File) => {
     setStage('scanning');
@@ -105,6 +154,13 @@ export default function AppPage() {
       });
 
       if (res.status === 401 || res.status === 402) {
+        /*
+         * Save the file before the paywall, because the next thing that happens
+         * is a full navigation to Stripe that destroys it. Best-effort: if the
+         * browser will not store it, the user re-selects on return, which is
+         * what happens today anyway.
+         */
+        void stashFile(file);
         setPaywall(true);
         return;
       }
@@ -133,6 +189,9 @@ export default function AppPage() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
+      // The copy only existed to survive the trip to Stripe. It has served its
+      // purpose, so it goes now rather than lingering on the user's disk.
+      void clearStash();
 
       setReceipt({
         outputLen: meta.outputLen,
@@ -163,6 +222,23 @@ export default function AppPage() {
               Drop your export in. It is read on your device and never uploaded — no account,
               no card, nothing to sign up for.
             </p>
+
+            {/*
+              * The fallback when the file could not be brought back across the
+              * trip to Stripe — no storage quota, a private window, or a return
+              * in a different browser. Without this the user lands on an empty
+              * dropzone after paying and has no idea whether it worked.
+              */}
+            {resumeNote && (
+              <div className="mt-6 rounded-xl border border-good/30 bg-good/5 px-5 py-4">
+                <p className="text-[14px] font-medium text-good">Your plan is active.</p>
+                <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+                  Drop your video back in and press Download — you will not be asked to pay
+                  again. We could not keep a copy while you were on the payment page, which is
+                  deliberate: it never left your device.
+                </p>
+              </div>
+            )}
 
             <label
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -281,8 +357,8 @@ export default function AppPage() {
                   height={scan.height}
                   fps={scan.fps}
                   bitrateMbps={scan.bitrateMbps}
-                  crushed={CRUSHED_STATS}
-                  pristine={PRISTINE_STATS}
+                  crushedLikes={CRUSHED_STATS.likes}
+                  pristineLikes={PRISTINE_STATS.likes}
                 />
               )}
 
@@ -360,33 +436,43 @@ export default function AppPage() {
 }
 
 function Paywall({ onClose }: { onClose: () => void }) {
+  /*
+   * The plans are HERE, not a link to /#pricing.
+   *
+   * That link was a full navigation, and it landed on the homepage copy of the
+   * pricing table — which is rendered non-interactive, so its "Start free trial"
+   * button is only a link to /pricing, where an identical-looking button finally
+   * does something. That is the literal cause of "I have to click start free
+   * trial twice": the first click was never a button.
+   */
   return (
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/75 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] overflow-y-auto bg-black/80 p-4 backdrop-blur-sm sm:p-8"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-panel border border-line bg-panel p-8"
+        className="mx-auto my-auto w-full max-w-5xl rounded-panel border border-line bg-panel p-6 sm:p-9"
       >
-        <h2 className="text-[1.25rem] font-semibold tracking-[-0.01em]">
-          You&rsquo;ve seen the difference
-        </h2>
-        <p className="mt-3 text-[14px] leading-relaxed text-muted">
-          Downloading the patched file needs a plan. Everything you just saw stays free —
-          you only pay when you want the file itself.
-        </p>
-        <Link
-          href="/#pricing"
-          className="mt-7 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
-        >
-          See plans
-        </Link>
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-[clamp(1.3rem,3vw,1.75rem)] font-semibold tracking-[-0.02em]">
+            You&rsquo;ve seen the difference
+          </h2>
+          <p className="mt-3 text-[14px] leading-relaxed text-muted">
+            Everything up to here is free. You only pay for the file itself — and your video
+            stays right where it is while you do.
+          </p>
+        </div>
+
+        <div className="mt-8">
+          <PricingTable />
+        </div>
+
         <button
           onClick={onClose}
-          className="mt-3 w-full rounded-xl px-5 py-2.5 text-center text-[13.5px] text-dim transition hover:text-muted"
+          className="mt-6 w-full rounded-xl px-5 py-2.5 text-center text-[13.5px] text-dim transition hover:text-muted"
         >
           Not yet
         </button>

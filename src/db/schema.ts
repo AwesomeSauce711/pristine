@@ -325,3 +325,45 @@ export const settings = pgTable('settings', {
   note: text('note'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A checkout started by someone with no account yet.
+ *
+ * WHY THIS EXISTS
+ * Requiring an account before payment is what created the whole detour: choose a
+ * plan, get sent to sign-in, wait for an email, come back, and choose the plan
+ * again because the choice lived in React state. Letting Stripe collect the email
+ * during checkout deletes that entire leg — but it means a session has to be
+ * mintable for someone who has not proved they control the address, and that is
+ * a dangerous thing to get slightly wrong.
+ *
+ * WHY A NONCE HASH AND NOT THE STRIPE SESSION ID
+ * The obvious design returns to /welcome?session_id=cs_... and mints a session
+ * from it. That turns a value Stripe deliberately puts in the URL bar into a
+ * login credential: it lands in browser history, in synced history across the
+ * user's devices, in the host's access logs, and in any support chat where
+ * someone pastes "did this work?". Instead a random nonce is set as an httpOnly
+ * cookie before the redirect and only its SHA-256 is stored here — the same
+ * discipline sessions.tokenHash already uses. The URL carries nothing.
+ *
+ * `claimed_at` is enforced by a conditional UPDATE rather than a read-then-write,
+ * so two racing requests cannot both claim one checkout.
+ */
+export const pendingCheckouts = pgTable('pending_checkouts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /* SHA-256 of the claim nonce. The raw value exists only in the user's cookie. */
+  nonceHash: text('nonce_hash').notNull().unique(),
+  stripeSessionId: text('stripe_session_id').notNull().unique(),
+  plan: text('plan').notNull(),
+  consentId: uuid('consent_id').references(() => consents.id, { onDelete: 'set null' }),
+  /* Null until the webhook resolves the email Stripe collected. */
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  /* Whether that email already had an account. If it did, paying does NOT sign
+   * anyone in — Stripe does not verify the buyer controls the address, so
+   * attaching a session would be account takeover for the price of one week. */
+  emailWasNew: boolean('email_was_new'),
+  ip: inet('ip'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+});

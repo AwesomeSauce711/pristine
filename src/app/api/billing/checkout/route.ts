@@ -1,30 +1,39 @@
+import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { currentUser } from '@/lib/auth';
 import { priceIdForPlan, stripe } from '@/lib/billing/stripe';
+import { CLAIM_COOKIE, CLAIM_TTL_MS } from '@/lib/billing/claim';
 import { methodStatus, sellingIsOpen } from '@/lib/method-status';
 import { PLANS, disclosure, type PlanId } from '@/lib/plans';
+import { clientIp, limit, tooMany } from '@/lib/ratelimit';
 
 /*
- * POST /api/billing/checkout — start a Stripe Checkout session.
+ * POST /api/billing/checkout — start a Stripe Checkout Session.
  *
- * Two things here are load-bearing beyond "take the money".
+ * TWO PATHS, AND WHY THE ANONYMOUS ONE EXISTS
+ * Requiring an account before payment was the single most expensive decision in
+ * the old flow. It forced: choose a plan, get diverted to sign-in, wait for an
+ * email, come back, and choose the plan again — because the choice lived in
+ * component state that the navigation destroyed. Stripe Checkout already
+ * collects an email. Letting it do so removes that entire leg.
  *
- * 1. THE STRIPE CUSTOMER IS CREATED BEFORE CHECKOUT, and `user_id` is written
- *    into `subscription_data.metadata`. Together these dissolve the classic
- *    webhook ordering race rather than working around it: only
- *    `checkout.session.completed` carries `client_reference_id`, so if the
- *    customer were created during checkout, a `customer.subscription.created`
- *    arriving first would describe a subscription we cannot map to a user.
- *    With both in place, every subscription event is self-describing.
+ * A SIGNED-IN USER STILL BINDS TO THEIR OWN ACCOUNT. The email Stripe collects
+ * is ignored in that case: whoever is holding the session cookie is who this
+ * subscription belongs to. Only a visitor with no session is resolved by email,
+ * and even then paying does not necessarily sign them in — see lib/billing/claim.
  *
- * 2. THE DISCLOSURE IS RECORDED VERBATIM before the session is created. US
- *    ROSCA and state automatic-renewal laws require the price, frequency,
- *    first-charge date and cancellation method to be shown clearly before
- *    billing details are taken. The stored row — with its hash, IP, user agent
- *    and timestamp — is the evidence that they were, in a chargeback and in a
- *    regulatory inquiry. It is written first so that a session can never exist
- *    without one.
+ * THE CLAIM NONCE
+ * A random value is set as an httpOnly cookie here, and only its SHA-256 is
+ * stored. On return, /welcome proves same-browser continuity by presenting the
+ * cookie. Nothing identifying goes in the URL — the old success_url carried
+ * `?session_id=`, which lands in browser history, synced history, host access
+ * logs and any support chat where someone pastes the link. A value Stripe
+ * deliberately puts in the URL bar must never be sufficient to mint a session.
+ *
+ * The disclosure is still recorded verbatim BEFORE the session is created, so a
+ * session can never exist without its consent record. Under the anonymous path
+ * that row starts with a null user and is backfilled by the webhook.
  */
 
 async function sha256Hex(s: string): Promise<string> {
@@ -32,11 +41,15 @@ async function sha256Hex(s: string): Promise<string> {
   return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function randomNonce(): string {
+  const a = new Uint8Array(32);
+  crypto.getRandomValues(a);
+  return Array.from(a).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export async function POST(req: Request) {
   const user = await currentUser();
-  if (!user) {
-    return Response.json({ code: 'not_signed_in', message: 'Sign in first.' }, { status: 401 });
-  }
+  const ip = clientIp(req);
 
   let body: { plan?: string; consented?: boolean };
   try {
@@ -46,12 +59,10 @@ export async function POST(req: Request) {
   }
 
   /*
-   * The kill switch, enforced where the money is.
-   *
-   * Existing subscribers are untouched — /api/patch does not consult this, so
-   * anyone who already paid keeps working. What stops is taking NEW money for
-   * something that may not work, which is the part that turns into refunds and
-   * disputes. Checked server-side because the banner is only a banner.
+   * The kill switch, enforced where the money is. Existing subscribers are
+   * untouched — /api/patch does not consult this — so anyone who already paid
+   * keeps working. What stops is taking NEW money for something that may not
+   * work, which is the part that turns into refunds and disputes.
    */
   if (!(await sellingIsOpen())) {
     const { status, note } = await methodStatus();
@@ -83,29 +94,44 @@ export async function POST(req: Request) {
     );
   }
 
-  /* ---- refuse to sell someone a second subscription -------------------- */
-
-  const existing = await db().select().from(schema.entitlements)
-    .where(eq(schema.entitlements.userId, user.id)).limit(1);
-  if (existing[0] && existing[0].accessUntil > new Date() && !existing[0].revokedAt) {
-    return Response.json(
-      { code: 'already_subscribed', message: 'You already have an active plan.' },
-      { status: 409 },
-    );
+  /*
+   * This route used to be gated on currentUser(), which incidentally rate
+   * limited it. Anonymous callers can now create Stripe Customers, Checkout
+   * Sessions and database rows, so the limit has to be explicit.
+   */
+  if (!user) {
+    const rate = await limit(`checkout:ip:${ip}`, 8, 3600);
+    if (!rate.ok) return tooMany(rate);
   }
 
-  /* ---- ensure a Stripe customer, before checkout ----------------------- */
+  /* ---- refuse to sell someone a second subscription -------------------- */
 
-  let customerId = user.stripeCustomerId;
-  if (!customerId) {
-    const customer = await stripe().customers.create({
-      email: user.email,
-      metadata: { user_id: user.id },
-    });
-    customerId = customer.id;
-    await db().update(schema.users)
-      .set({ stripeCustomerId: customerId })
-      .where(eq(schema.users.id, user.id));
+  if (user) {
+    const existing = await db().select().from(schema.entitlements)
+      .where(eq(schema.entitlements.userId, user.id)).limit(1);
+    if (existing[0] && existing[0].accessUntil > new Date() && !existing[0].revokedAt) {
+      return Response.json(
+        { code: 'already_subscribed', message: 'You already have an active plan.' },
+        { status: 409 },
+      );
+    }
+  }
+
+  /* ---- a Stripe customer, only when we already know who this is -------- */
+
+  let customerId: string | null = null;
+  if (user) {
+    customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe().customers.create({
+        email: user.email,
+        metadata: { user_id: user.id },
+      });
+      customerId = customer.id;
+      await db().update(schema.users)
+        .set({ stripeCustomerId: customerId })
+        .where(eq(schema.users.id, user.id));
+    }
   }
 
   /* ---- record consent -------------------------------------------------- */
@@ -115,7 +141,9 @@ export async function POST(req: Request) {
   const origin = new URL(req.url).origin;
 
   const consent = await db().insert(schema.consents).values({
-    userId: user.id,
+    // Null for an anonymous checkout; the webhook backfills it once Stripe has
+    // told us which email paid. The column is nullable for exactly this.
+    userId: user?.id ?? null,
     kind: plan.trialDays > 0 ? 'trial_negative_option' : 'immediate_charge',
     priceId: priceIdForPlan(planId),
     disclosureText: text,
@@ -124,17 +152,33 @@ export async function POST(req: Request) {
     interval: plan.interval,
     firstChargeAt,
     checkboxChecked: true,
-    ip: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '0.0.0.0',
+    ip: ip === 'unknown' ? '0.0.0.0' : ip,
     userAgent: req.headers.get('user-agent')?.slice(0, 500) ?? 'unknown',
-    pageUrl: req.headers.get('referer') ?? `${origin}/pricing`,
+    pageUrl: req.headers.get('referer') ?? `${origin}/app`,
   }).returning({ id: schema.consents.id });
 
   /* ---- the session ----------------------------------------------------- */
 
+  // Generated here rather than by the database, because it has to go into the
+  // Stripe session that is created before the row is written.
+  const pendingId = crypto.randomUUID();
+  const nonce = randomNonce();
+
+  const meta: Record<string, string> = {
+    plan: planId,
+    consent_id: consent[0].id,
+    pending_checkout_id: pendingId,
+    ...(user ? { user_id: user.id } : {}),
+  };
+
   const session = await stripe().checkout.sessions.create({
     mode: 'subscription',
-    customer: customerId,
-    client_reference_id: user.id,
+    ...(customerId ? { customer: customerId } : {}),
+    // For a signed-in user this stays the user id, which is what
+    // /api/billing/sync compares against. Anonymous checkouts carry the pending
+    // handle instead — a non-secret lookup key, never the nonce itself, because
+    // this field is rendered in the Stripe Dashboard and in every webhook body.
+    client_reference_id: user ? user.id : `pc_${pendingId}`,
     line_items: [{ price: priceIdForPlan(planId), quantity: 1 }],
 
     // Always take a card, including for trials. Stated on the page too.
@@ -144,44 +188,62 @@ export async function POST(req: Request) {
       ...(plan.trialDays > 0
         ? {
             trial_period_days: plan.trialDays,
-            // No card by the end of the trial means it simply ends, rather
-            // than leaving a subscription in limbo.
             trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
           }
         : {}),
-      // Copied onto the Subscription itself, so every subscription event can be
-      // resolved to a user without depending on the checkout event.
-      metadata: { user_id: user.id, plan: planId, consent_id: consent[0].id },
+      // Copied onto the Subscription itself so every subscription event is
+      // self-describing, even when it arrives before checkout.session.completed
+      // and even when no user existed at checkout time.
+      metadata: meta,
     },
 
-    /*
-     * Off by default. A visible promo field on a trial checkout invites
-     * coupon-hunting extensions and measurably depresses conversion; turn it on
-     * per-campaign instead.
-     */
+    // ALSO at the top level. The webhook's consent backfill reads the Checkout
+    // Session's own metadata, which was never set — harmless while consents
+    // were written with a user attached, load-bearing now that they are not.
+    metadata: meta,
+
     allow_promotion_codes: false,
 
-    /*
-     * Stripe Tax is opt-in here only because it must be enabled in the Stripe
-     * dashboard first, and a session referencing it before then fails outright.
-     * Turn it on: selling digital goods to consumers creates VAT/GST
-     * obligations from the first sale, and retrofitting it is painful.
-     */
     ...(process.env.STRIPE_AUTOMATIC_TAX === '1'
       ? { automatic_tax: { enabled: true }, customer_update: { address: 'auto', name: 'auto' } }
       : {}),
 
-    custom_text: {
-      submit: { message: text },
-    },
+    custom_text: { submit: { message: text } },
 
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-    success_url: `${origin}/welcome?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/pricing?cancelled=1`,
+    // No query string. Everything needed on return is in the claim cookie, and
+    // the claim route can set a session cookie where a page cannot.
+    success_url: `${origin}/api/billing/claim`,
+    cancel_url: `${origin}/app?cancelled=1`,
   }, {
-    // Same person, same plan, same consent → same session, even if they
-    // double-click or the network retries.
-    idempotencyKey: `checkout:${user.id}:${planId}:${consent[0].id}`,
+    idempotencyKey: `checkout:${pendingId}`,
+  });
+
+  await db().insert(schema.pendingCheckouts).values({
+    id: pendingId,
+    nonceHash: await sha256Hex(nonce),
+    stripeSessionId: session.id,
+    plan: planId,
+    consentId: consent[0].id,
+    userId: user?.id ?? null,
+    ip: ip === 'unknown' ? null : ip,
+    expiresAt: new Date(Date.now() + CLAIM_TTL_MS),
+  });
+
+  /*
+   * `lax`, not `strict`: the return from checkout.stripe.com is a cross-site
+   * top-level navigation, and a Strict cookie would not be sent, dead-ending
+   * every checkout. The session cookie is already lax for the same reason.
+   */
+  const jar = await cookies();
+  jar.set(CLAIM_COOKIE, nonce, {
+    httpOnly: true,
+    // Required by the __Host- prefix. localhost is a secure context, so this
+    // does not break development.
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: Math.floor(CLAIM_TTL_MS / 1000),
   });
 
   return Response.json({ url: session.url });

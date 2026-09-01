@@ -194,14 +194,31 @@ export async function markFirstPaid(subscriptionId: string, at: Date): Promise<v
 /**
  * Find the user a Stripe object belongs to.
  *
- * Two independent routes, deliberately. `metadata.user_id` is copied onto the
- * Subscription at checkout, so subscription events are self-describing whatever
- * order they arrive in; the customer lookup covers anything created outside
- * that flow, such as a plan started from the Stripe dashboard.
+ * THREE independent routes, deliberately.
+ *
+ * `metadata.user_id` is copied onto the Subscription at checkout, so events are
+ * self-describing whatever order they arrive in. The customer lookup covers
+ * anything created outside that flow, such as a plan started from the Stripe
+ * dashboard.
+ *
+ * The third exists because anonymous checkout broke the first two. When nobody
+ * is signed in there is no user_id to copy and no Customer of ours to match, so
+ * a `customer.subscription.created` arriving before `checkout.session.completed`
+ * resolved to nothing and the entitlement was silently never written — the exact
+ * ordering independence the rest of this file is built to guarantee. The pending
+ * checkout id is carried in the same metadata and survives that gap.
  */
 async function resolveUserId(sub: Stripe.Subscription): Promise<string | null> {
   const fromMetadata = sub.metadata?.user_id;
   if (fromMetadata) return fromMetadata;
+
+  const pendingId = sub.metadata?.pending_checkout_id;
+  if (pendingId) {
+    const rows = await db().select({ userId: schema.pendingCheckouts.userId })
+      .from(schema.pendingCheckouts)
+      .where(eq(schema.pendingCheckouts.id, pendingId)).limit(1);
+    if (rows[0]?.userId) return rows[0].userId;
+  }
 
   const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
   if (!customerId) return null;

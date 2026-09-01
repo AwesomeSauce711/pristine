@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+import { db, schema } from '@/db';
 import { currentUser } from '@/lib/auth';
 import { stripe } from '@/lib/billing/stripe';
 import { syncSubscription } from '@/lib/billing/sync';
@@ -41,7 +43,23 @@ export async function POST(req: Request) {
         expand: ['subscription'],
       });
 
-      if (session.client_reference_id !== user.id) {
+      /*
+       * The one line stopping someone grafting another person's payment onto
+       * their own account. A signed-in checkout puts the user id here directly;
+       * an anonymous one puts `pc_<pending id>`, so that case has to be resolved
+       * through the pending row rather than compared as a string — otherwise
+       * every anonymous checkout 404s here, including the legitimate recovery
+       * path this endpoint exists for.
+       */
+      const ref = session.client_reference_id ?? '';
+      let owner: string | null = ref.startsWith('pc_') ? null : ref;
+      if (ref.startsWith('pc_')) {
+        const rows = await db().select({ userId: schema.pendingCheckouts.userId })
+          .from(schema.pendingCheckouts)
+          .where(eq(schema.pendingCheckouts.id, ref.slice(3))).limit(1);
+        owner = rows[0]?.userId ?? null;
+      }
+      if (owner !== user.id) {
         // Someone else's checkout session. Refuse, and say nothing about it.
         return Response.json({ code: 'not_found' }, { status: 404 });
       }

@@ -6,28 +6,32 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import Nav from '@/components/Nav';
 
 /*
- * Where Stripe sends people after checkout.
+ * The three outcomes of a checkout that do NOT go straight back to the tool.
  *
- * The webhook is what actually grants access, and it usually lands before the
- * browser finishes redirecting. This page therefore waits for OUR OWN state to
- * say the subscription is live, rather than believing the redirect — the URL is
- * something the browser supplies and proves nothing.
+ * A successful, fully-resolved payment never reaches this page at all —
+ * /api/billing/claim redirects to /app?resume=1, where the file the user
+ * stashed is restored and the download starts on its own. Landing here means
+ * something needs saying:
  *
- * If polling does not resolve quickly, it falls back to an explicit reconcile
- * using the session id, which is validated server-side against the signed-in
- * user. A customer who has paid must never be left looking at a paywall, and
- * "wait and refresh" is not an acceptable answer at the moment money changed
- * hands.
+ *   code     the email already had an account. The subscription is attached to
+ *            it, but paying is not proof of controlling an address, so a code is
+ *            required before anyone is signed in. This is the anti-takeover rule
+ *            and it is the whole reason this page still exists.
+ *   pending  Stripe has not marked the session complete yet, or the webhook is
+ *            still in flight. Poll our own state rather than believing the URL.
+ *   error    something failed. The webhook is authoritative and will have done
+ *            the work, so the honest instruction is to sign in.
  */
 
-type Phase = 'checking' | 'ready' | 'slow' | 'failed';
+type State = 'code' | 'pending' | 'error' | 'unknown';
 
 function Welcome() {
   const params = useSearchParams();
-  const sessionId = params.get('session_id');
-  const [phase, setPhase] = useState<Phase>('checking');
+  const state = (params.get('state') ?? 'unknown') as State;
+  const email = params.get('email') ?? '';
+  const [entitled, setEntitled] = useState(false);
 
-  const check = useCallback(async (): Promise<boolean> => {
+  const check = useCallback(async () => {
     try {
       const res = await fetch('/api/me', { cache: 'no-store' });
       const data = await res.json();
@@ -38,120 +42,90 @@ function Welcome() {
   }, []);
 
   useEffect(() => {
+    if (state !== 'pending') return;
     let cancelled = false;
     let attempts = 0;
-
     const tick = async () => {
       if (cancelled) return;
-      if (await check()) {
-        if (!cancelled) setPhase('ready');
-        return;
-      }
-      attempts += 1;
-
-      // ~12 seconds of patience before trying the explicit reconcile.
-      if (attempts < 8) {
-        setTimeout(tick, 1500);
-        return;
-      }
-
-      try {
-        await fetch('/api/billing/sync', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-        });
-        if (await check()) {
-          if (!cancelled) setPhase('ready');
-          return;
-        }
-      } catch {
-        /* fall through */
-      }
-      if (!cancelled) setPhase(attempts > 12 ? 'failed' : 'slow');
-      if (attempts <= 12) setTimeout(tick, 2500);
+      if (await check()) { if (!cancelled) setEntitled(true); return; }
+      if (++attempts < 12) setTimeout(tick, 1500);
     };
-
     void tick();
     return () => { cancelled = true; };
-  }, [check, sessionId]);
+  }, [state, check]);
 
-  return (
-    <div className="mx-auto max-w-lg px-6 py-28 text-center">
-      {phase === 'ready' ? (
-        <>
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-good/10">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" className="text-good" aria-hidden="true">
-              <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2"
-                    strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <h1 className="mt-7 text-[1.8rem] font-semibold tracking-[-0.02em]">You&rsquo;re all set</h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            Your plan is active. Downloads are unlocked — go and patch something.
-          </p>
-          <Link
-            href="/app"
-            className="mt-8 inline-block rounded-xl bg-accent px-7 py-3.5 text-[15px] font-medium text-white transition hover:bg-accent-soft"
-          >
-            Open the tool
-          </Link>
-          <p className="mt-6 text-[13px] text-dim">
-            A receipt is on its way by email. Manage or cancel any time from{' '}
-            <Link href="/account" className="underline hover:text-muted">Account</Link>.
-          </p>
-        </>
-      ) : phase === 'failed' ? (
-        <>
-          <h1 className="text-[1.6rem] font-semibold tracking-[-0.02em]">
-            Your payment went through
-          </h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            We just haven&rsquo;t finished confirming it on our side. This clears itself within a
-            few minutes — nothing has gone wrong with your payment and you will not be charged
-            twice.
-          </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <button
-              onClick={() => window.location.reload()}
-              className="rounded-xl bg-accent px-6 py-3 text-[14px] font-medium text-white transition hover:bg-accent-soft"
-            >
-              Check again
-            </button>
-            <Link
-              href="/account"
-              className="rounded-xl border border-line px-6 py-3 text-[14px] text-muted transition hover:border-dim hover:text-text"
-            >
-              Go to account
-            </Link>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
-          <h1 className="mt-7 text-[1.5rem] font-semibold tracking-[-0.02em]">
-            Confirming your subscription…
-          </h1>
-          <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
-            {phase === 'slow'
-              ? 'Taking a little longer than usual. Your payment is safe — we are just waiting on confirmation.'
-              : 'This usually takes a second or two.'}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-export default function WelcomePage() {
   return (
     <>
       <Nav />
-      <main id="main">
-        <Suspense fallback={null}>
-          <Welcome />
-        </Suspense>
+      <main id="main" className="mx-auto max-w-lg px-6 py-24">
+        {state === 'code' && (
+          <>
+            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+              Payment received — one more step
+            </h1>
+            <p className="mt-4 text-[15px] leading-relaxed text-muted">
+              {email ? <><span className="text-text">{email}</span> already has</> : 'That email already has'}{' '}
+              an account here, and your plan has been added to it.
+            </p>
+            <p className="mt-4 text-[14px] leading-relaxed text-muted">
+              We have emailed a sign-in code. We ask for it because paying proves you own a card,
+              not that you own this address — and we are not willing to hand over an existing
+              account on the strength of the first one.
+            </p>
+            <Link
+              href="/sign-in?next=%2Fapp"
+              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+            >
+              Enter the code
+            </Link>
+          </>
+        )}
+
+        {state === 'pending' && (
+          <>
+            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+              {entitled ? 'You’re all set' : 'Finishing up…'}
+            </h1>
+            <p className="mt-4 text-[15px] leading-relaxed text-muted">
+              {entitled
+                ? 'Your plan is active.'
+                : 'Stripe is confirming the payment. This usually takes a second or two.'}
+            </p>
+            <Link
+              href="/app"
+              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+            >
+              Back to the tool
+            </Link>
+          </>
+        )}
+
+        {(state === 'error' || state === 'unknown') && (
+          <>
+            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+              Sign in to pick up where you left off
+            </h1>
+            <p className="mt-4 text-[15px] leading-relaxed text-muted">
+              If you have just paid, your plan is on the account for the email you used at
+              checkout — nothing is lost. Sign in with that address and it will be there.
+            </p>
+            <Link
+              href="/sign-in?next=%2Fapp"
+              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+            >
+              Sign in
+            </Link>
+          </>
+        )}
       </main>
     </>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <Welcome />
+    </Suspense>
   );
 }
