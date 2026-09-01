@@ -1,3 +1,4 @@
+import { siteOrigin } from '@/lib/origin';
 import { currentUser } from '@/lib/auth';
 import { stripe } from '@/lib/billing/stripe';
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   try {
     const session = await stripe().billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${new URL(req.url).origin}/account`,
+      return_url: `${siteOrigin(req)}/account`,
     });
     return Response.json({ url: session.url });
   } catch (e) {

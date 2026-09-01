@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '@/db';
+import { siteOrigin } from '@/lib/origin';
 import { currentUser } from '@/lib/auth';
 import { priceIdForPlan, stripe } from '@/lib/billing/stripe';
 import { CLAIM_COOKIE, CLAIM_TTL_MS } from '@/lib/billing/claim';
@@ -138,7 +139,7 @@ export async function POST(req: Request) {
 
   const firstChargeAt = new Date(Date.now() + plan.trialDays * 86_400_000);
   const text = disclosure(plan, firstChargeAt);
-  const origin = new URL(req.url).origin;
+  const origin = siteOrigin(req);
 
   const consent = await db().insert(schema.consents).values({
     // Null for an anonymous checkout; the webhook backfills it once Stripe has

@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { siteOrigin } from '@/lib/origin';
 import { currentUser } from '@/lib/auth';
 import { CLAIM_COOKIE, claimCheckout } from '@/lib/billing/claim';
 import { clientIp } from '@/lib/ratelimit';
@@ -27,7 +28,7 @@ import { clientIp } from '@/lib/ratelimit';
  * mints a session.
  */
 export async function GET(req: Request) {
-  const origin = new URL(req.url).origin;
+  const origin = siteOrigin(req);
   const jar = await cookies();
   const nonce = jar.get(CLAIM_COOKIE)?.value;
   const user = await currentUser();
