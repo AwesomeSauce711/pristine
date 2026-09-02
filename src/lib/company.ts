@@ -17,7 +17,18 @@
 export interface Company {
   /** Registered legal entity, e.g. "Pristine Software LLC". */
   legalName: string;
-  /** Trading name shown to customers. */
+  /**
+   * Trading name shown to customers, and the one that has to match the bank
+   * statement.
+   *
+   * This is deliberately "Pristine 4K" while the marketing copy says "Pristine".
+   * The statement descriptor is PRISTINE4K and the domain is pristine4k.com, and
+   * the single largest cause of "I don't recognise this charge" is a name on a
+   * statement that matches nothing the customer remembers. So every artefact
+   * that reaches them alongside money — receipts, sign-in mail, the legal pages
+   * — uses the full name. Prose keeps the short form, which is normal: a
+   * trading name and a wordmark are allowed to differ.
+   */
   tradingName: string;
   /**
    * Registered address, single line. OPTIONAL.
@@ -53,12 +64,12 @@ const PLACEHOLDER = 'TO BE COMPLETED';
 
 export const COMPANY: Company = {
   legalName: process.env.NEXT_PUBLIC_LEGAL_NAME ?? PLACEHOLDER,
-  tradingName: 'Pristine',
+  tradingName: 'Pristine 4K',
   address: process.env.NEXT_PUBLIC_LEGAL_ADDRESS ?? PLACEHOLDER,
   country: process.env.NEXT_PUBLIC_LEGAL_COUNTRY ?? PLACEHOLDER,
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? PLACEHOLDER,
   privacyEmail: process.env.NEXT_PUBLIC_PRIVACY_EMAIL ?? PLACEHOLDER,
-  statementDescriptor: process.env.NEXT_PUBLIC_STATEMENT_DESCRIPTOR ?? 'PRISTINE',
+  statementDescriptor: process.env.NEXT_PUBLIC_STATEMENT_DESCRIPTOR ?? 'PRISTINE4K',
   origin: process.env.NEXT_PUBLIC_ORIGIN ?? 'https://pristine4k.com',
 };
 

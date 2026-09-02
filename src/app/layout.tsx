@@ -19,13 +19,13 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL('https://pristine4k.com'),
   title: {
-    default: 'Pristine — stop TikTok compressing your video',
-    template: '%s — Pristine',
+    default: 'Pristine 4K — stop TikTok compressing your video',
+    template: '%s — Pristine 4K',
   },
   description:
     'TikTok re-encodes your upload to 720p and halves the frame rate. Pristine patches the file so it is served exactly as you made it. Your video never leaves your device.',
   openGraph: {
-    title: 'Pristine — stop TikTok compressing your video',
+    title: 'Pristine 4K — stop TikTok compressing your video',
     description:
       'TikTok re-encodes your upload to 720p. Pristine patches the file so it is served exactly as you made it.',
     type: 'website',
