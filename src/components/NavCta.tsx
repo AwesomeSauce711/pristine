@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
  *
  * Display only. Every page it links to enforces its own access server-side.
  */
-export default function NavCta() {
+export default function NavCta({ tryFree = true }: { tryFree?: boolean }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function NavCta() {
   return (
     <>
       <Link href="/sign-in" className="nav-link hidden sm:inline-flex">Sign in</Link>
-      <Link href="/app" className={classes}>Try free</Link>
+      {tryFree && <Link href="/app" className={classes}>Try free</Link>}
     </>
   );
 }

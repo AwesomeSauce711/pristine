@@ -375,7 +375,7 @@ export default function AppPage() {
         * reach well past the phone, and must never widen the page.
         */}
       <div className="relative z-[1] min-h-[100svh] overflow-x-clip">
-        <SceneNav variant="app" />
+        <SceneNav variant="app" cta="none" dockHidden={stage === 'ready' && !!scan && !notice} />
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
           <HeroField calm={0.5} />
         </div>
@@ -786,10 +786,13 @@ export default function AppPage() {
             </div>
           )}
           {/* On a phone the download sits below a tall stage; this keeps it
-            * one tap away the moment the preview is up. Desktop keeps the
-            * full section (md:hidden here), which is where most people are. */}
+            * one tap away the moment the preview is up, and it stands where
+            * the dock was: the dock is hidden while this is up (SceneNav's
+            * dockHidden), so there is one control at the bottom, not a
+            * Download above a Try free. Desktop keeps the full section
+            * (md:hidden here), which is where most people are. */}
           {stage === 'ready' && scan && !notice && (
-            <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-[60] flex justify-center px-4 md:hidden">
+            <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex justify-center px-4 md:hidden">
               <button
                 type="button"
                 onClick={download}

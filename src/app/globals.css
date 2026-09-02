@@ -1815,6 +1815,36 @@ body {
 .drop-clear.plate-face::after {
   opacity: 0;
 }
+/*
+ * The slab's THICKNESS is the other opaque layer, and it is a sibling of the
+ * face rather than a child — `className` goes to `.plate-face`, so a descendant
+ * rule never reached it. That top-to-bottom gradient was the whole of what was
+ * still showing. `:has` selects the group from the face inside it.
+ *
+ * The hairline border and the cast shadow stay: without the shadow the frame
+ * stops sitting above the scene and reads as a drawn rectangle.
+ */
+.plate:has(> .drop-clear) .plate-edge {
+  background: none;
+}
+
+/*
+ * Now that the scene shows through, the content needs its own contrast.
+ *
+ * Passing stars and drifting glyphs move behind this text, so there is no
+ * single background colour to set type against — at some moments it sat on
+ * near-black and at others on a lit star. A shadow travels with the glyphs and
+ * holds them legible over both, which a background colour cannot do without
+ * putting the panel back.
+ */
+.drop-clear .plate-face {
+  text-shadow:
+    0 1px 2px rgba(5, 6, 12, 0.95),
+    0 2px 12px rgba(5, 6, 12, 0.8);
+}
+.drop-clear .plate-face svg {
+  filter: drop-shadow(0 2px 6px rgba(5, 6, 12, 0.9));
+}
 
 /* The slab in flight carries the reader's video. */
 .drop-morph {

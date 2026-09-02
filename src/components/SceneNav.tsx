@@ -84,6 +84,17 @@ interface Props {
    * calms the parallax.
    */
   variant?: 'landing' | 'app';
+  /**
+   * `none` drops "Try free" from the nav and the dock. On the tool page the
+   * reader is already trying, and a button inviting them to was sitting under
+   * the page's own Download control.
+   */
+  cta?: 'default' | 'none';
+  /**
+   * Hide the dock outright — for when the page has put its own control in the
+   * dock's place (the tool page's Download pill once a preview is up).
+   */
+  dockHidden?: boolean;
 }
 
 /* ---------------------------------------------------------------- tuning */
@@ -139,12 +150,13 @@ function useReducedMotion(): boolean {
 
 /* ----------------------------------------------------------- component */
 
-export default function SceneNav({ variant = 'landing' }: Props) {
+export default function SceneNav({ variant = 'landing', cta = 'default', dockHidden = false }: Props) {
   const layerRef = useRef<HTMLElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const homeRef = useRef<HTMLAnchorElement>(null);
   const [dockShown, setDockShown] = useState(false);
   const still = useReducedMotion();
+  const dockOn = dockShown && !dockHidden;
 
   /*
    * The parallax. Every element with a `data-depth` is placed at that depth,
@@ -326,7 +338,7 @@ export default function SceneNav({ variant = 'landing' }: Props) {
               </Link>
             </span>
             <span data-depth={DEPTH.cta} className="pointer-events-auto inline-flex" {...soundProps('hover')}>
-              <NavCta />
+              <NavCta tryFree={cta !== 'none'} />
             </span>
           </nav>
         </div>
@@ -341,19 +353,21 @@ export default function SceneNav({ variant = 'landing' }: Props) {
         */}
       <div
         className="dock fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-40 flex items-center gap-2"
-        data-shown={dockShown}
-        inert={!dockShown}
+        data-shown={dockOn}
+        inert={!dockOn}
         style={{
-          opacity: dockShown ? 1 : 0,
-          transform: dockShown || still ? 'none' : 'translateY(12px)',
+          opacity: dockOn ? 1 : 0,
+          transform: dockOn || still ? 'none' : 'translateY(12px)',
           transition: still
             ? `opacity ${DOCK_MS}ms ease`
             : `opacity ${DOCK_MS}ms ease, transform ${DOCK_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
         }}
       >
-        <span className="inline-flex" {...soundProps('hover')}>
-          <NavCta />
-        </span>
+        {cta !== 'none' && (
+          <span className="inline-flex" {...soundProps('hover')}>
+            <NavCta />
+          </span>
+        )}
         <SoundToggle />
         {/* Icon-only, so the label is the one new string this file adds. It
             is built exactly as the sound toggle is — the same `.sound-toggle`

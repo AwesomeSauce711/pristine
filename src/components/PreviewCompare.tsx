@@ -137,18 +137,23 @@ export default function PreviewCompare({
 
   useEffect(() => {
     const v = videoRef.current;
-    const c = canvasRef.current;
+    const main = canvasRef.current;
     const wrap = wrapRef.current;
-    if (!v || !c || !wrap) return;
-    const ctx = c.getContext('2d', { alpha: false });
-    if (!ctx) return;
-    // Resizing the canvas resets the context's state, filter included, so the
-    // look is set per draw rather than once here.
-    const canFilter = 'filter' in ctx;
+    if (!v || !main || !wrap) return;
+    const mctx = main.getContext('2d', { alpha: false });
+    if (!mctx) return;
+
+    /* The crushed side is rendered here first, small, then drawn back up. That
+     * throwing away and putting back IS the detail loss being shown. */
+    const crush = document.createElement('canvas');
+    const cctx = crush.getContext('2d', { alpha: false });
+    if (!cctx) return;
+
+    // Resizing a canvas resets its context, filter included, so the look is set
+    // per draw rather than once here.
+    const canFilter = 'filter' in cctx;
 
     let raf = 0;
-    let lastDrawn = -1;
-    const interval = 1 / targetFps;
 
     const size = () => {
       if (!v.videoWidth) return;
@@ -181,36 +186,92 @@ export default function PreviewCompare({
       const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 3) : 1;
       const physicalW = (wrap.clientWidth || 300) * dpr;
 
-      c.width = Math.max(16, Math.round(physicalW * reduction));
-      c.height = Math.max(16, Math.round(physicalW * reduction * aspect));
+      main.width = Math.max(16, Math.round(physicalW));
+      main.height = Math.max(16, Math.round(physicalW * aspect));
+      crush.width = Math.max(16, Math.round(physicalW * reduction));
+      crush.height = Math.max(16, Math.round(physicalW * reduction * aspect));
     };
 
+    /*
+     * BOTH SIDES ARE DRAWN, from the same frame, on the same tick.
+     *
+     * The clean side used to be the <video> element itself, showing through
+     * beside the canvas. That is two render paths on two schedules: the element
+     * composites on the browser's own clock while the canvas draws on
+     * requestAnimationFrame, so the canvas is always at least the frame it
+     * could reach. Worse, the canvas was deliberately redrawn only `targetFps`
+     * times a second to represent the halved frame rate — which meant the
+     * crushed side was showing a frame up to 33ms old NEXT TO a live one. That
+     * reads as the two halves being out of step, and it was reported as such.
+     *
+     * WHY THE FRAME-RATE SIMULATION HAD TO GO
+     * It is not possible to show temporal loss and perfect sync at the same
+     * time: at 30fps the correct frame to show IS the older one, half the time.
+     * In a split screen that is indistinguishable from a bug, and it costs the
+     * comparison its credibility. The frame rate is stated in the spec line
+     * over the crushed side, where it is read rather than guessed at. What the
+     * picture argues is the detail loss, and that is unaffected.
+     *
+     * So: the crushed side is rendered small (the reduction below is the whole
+     * argument) into an offscreen canvas and drawn back up, and the clean side
+     * is drawn at full size, both from `v` in one pair of calls. Same frame, by
+     * construction — the same thing the landing page comparison does.
+     */
     const draw = () => {
-      if (v.readyState >= 2) {
-        const due = lastDrawn < 0
-          || v.currentTime - lastDrawn >= interval
-          || v.currentTime < lastDrawn;
-        if (due && c.width > 0) {
-          lastDrawn = v.currentTime;
-          if (canFilter) ctx.filter = CRUSH_LOOK;
-          ctx.drawImage(v, 0, 0, c.width, c.height);
+      if (v.readyState >= 2 && v.videoWidth && main.width > 0) {
+        const split = Math.max(0, Math.min(main.width, (main.width * posRef.current) / 100));
+
+        /* Clean, underneath and whole. */
+        mctx.filter = 'none';
+        mctx.drawImage(v, 0, 0, main.width, main.height);
+
+        /* Crushed, over it, clipped to the left of the handle. */
+        if (split > 0 && crush.width > 0) {
+          if (canFilter) cctx.filter = CRUSH_LOOK;
+          cctx.drawImage(v, 0, 0, crush.width, crush.height);
+          mctx.save();
+          mctx.beginPath();
+          mctx.rect(0, 0, split, main.height);
+          mctx.clip();
+          mctx.drawImage(crush, 0, 0, crush.width, crush.height, 0, 0, main.width, main.height);
+          mctx.restore();
         }
       }
       raf = requestAnimationFrame(draw);
     };
 
+    /*
+     * `play()` is rejected more often than the autoplay rules suggest — iOS Low
+     * Power Mode, Data Saver, a backgrounded tab. A refusal is never final: the
+     * next `canplay` and the first touch anywhere both try again.
+     */
+    let starting = false;
+    const start = () => {
+      if (starting || !v.paused || v.readyState < 3) return;
+      starting = true;
+      void v.play().catch(() => {}).finally(() => { starting = false; });
+    };
+    const onGesture = () => { if (v.paused) start(); };
+
     v.addEventListener('loadedmetadata', size);
+    v.addEventListener('canplay', start);
+    document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
+    document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
     if (v.videoWidth) size();
     const ro = new ResizeObserver(size);
     ro.observe(wrap);
 
+    start();
     raf = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       v.removeEventListener('loadedmetadata', size);
+      v.removeEventListener('canplay', start);
+      document.removeEventListener('pointerdown', onGesture, { capture: true });
+      document.removeEventListener('touchstart', onGesture, { capture: true });
     };
-  }, [src, targetShortEdge, targetFps]);
+  }, [src, targetShortEdge]);
 
   /*
    * Every change to the split goes through here, and the parent hears about
@@ -336,23 +397,25 @@ export default function PreviewCompare({
       className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
                  rounded-[38px] bg-black"
     >
-      {/* Clean side — the video itself. One element, one clock. */}
+      {/* The source. Off-screen but never `display:none` and never zero-sized:
+          a hidden element may be throttled or left undecoded, and the canvas
+          would have nothing to draw. */}
       <video
         ref={videoRef}
         src={src}
-        muted loop playsInline autoPlay
-        className="absolute inset-0 h-full w-full object-cover"
+        muted loop playsInline
+        aria-hidden="true"
+        className="pointer-events-none absolute h-px w-px opacity-0"
       />
 
-      {/* Crushed side, clipped to the left of the handle. Its look is drawn in
-          (CRUSH_LOOK), so the element itself carries no filter. */}
-      <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{ imageRendering: 'auto' }}
-        />
-      </div>
+      {/* Both halves, from the same frame, every frame. No clip path here: the
+          split is a clip inside the draw, so the two sides cannot disagree
+          about where the handle is any more than about which frame it is. */}
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
 
       {/* Legibility wash, top and bottom, over both halves. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />
