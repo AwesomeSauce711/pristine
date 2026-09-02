@@ -210,8 +210,13 @@ export async function POST(req: Request) {
       : {}),
 
     // Renders directly above Stripe's Subscribe button — the control that
-    // actually starts billing, which is where the disclosure belongs.
-    custom_text: { submit: { message: text } },
+    // actually starts billing, which is where the disclosure belongs. When the
+    // consent checkbox is enabled below, this is merged into that object
+    // instead: a later `custom_text` key in the same literal would silently
+    // replace this one and the disclosure would vanish.
+    ...(process.env.STRIPE_TOS_CONSENT === '1'
+      ? {}
+      : { custom_text: { submit: { message: text } } }),
 
     /*
      * An affirmative, unticked acceptance checkbox on Stripe's page, replacing
@@ -226,7 +231,22 @@ export async function POST(req: Request) {
      * STRIPE_AUTOMATIC_TAX above.
      */
     ...(process.env.STRIPE_TOS_CONSENT === '1'
-      ? { consent_collection: { terms_of_service: 'required' as const } }
+      ? {
+          consent_collection: { terms_of_service: 'required' as const },
+          /*
+           * Naming the terms explicitly rather than taking Stripe's generic
+           * default. "I agree to the terms of service" with no link is weaker
+           * evidence than a sentence that says which terms, and links to them,
+           * next to the box the customer actually ticked.
+           */
+          custom_text: {
+            submit: { message: text },
+            terms_of_service_acceptance: {
+              message: `I agree to the [Terms of Service](${origin}/legal/terms) and the `
+                + `[Refund Policy](${origin}/legal/refunds).`,
+            },
+          },
+        }
       : {}),
 
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
