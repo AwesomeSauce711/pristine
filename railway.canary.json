@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm ci --include=dev"
+  },
+  "deploy": {
+    "startCommand": "npm run canary",
+    "cronSchedule": "17 13 * * *",
+    "restartPolicyType": "NEVER"
+  }
+}

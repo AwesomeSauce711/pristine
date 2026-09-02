@@ -199,15 +199,39 @@ export default function CompareSlider({
 
     let raf = 0;
     let started = false;
+    let starting = false;
 
+    /*
+     * WHY THIS WATCHES WHETHER play() ACTUALLY SUCCEEDED
+     *
+     * `play()` returns a promise, and it is rejected more often than the
+     * autoplay rules suggest. Muted and inline satisfies the policy in a normal
+     * tab, but not in iOS Low Power Mode, not under Data Saver, not in a
+     * background or zero-sized tab, and not on some Android browsers until the
+     * page has been touched. The earlier version set `started` before calling
+     * play and swallowed the rejection, so any of those left both clips frozen
+     * on their poster with nothing able to recover: `started` was true, so no
+     * later `canplay` would try again, and there was no other path back.
+     *
+     * A silent still frame is the worst available failure. The comparison IS
+     * the argument for the product, and a reader who sees two identical
+     * motionless pictures concludes there is nothing in it.
+     *
+     * So `started` is only set once both elements are genuinely playing, a
+     * rejection leaves the door open for the next attempt, and a first touch
+     * anywhere on the page counts as one — which is the gesture every mobile
+     * autoplay policy is waiting for.
+     */
     const startBoth = () => {
-      if (started) return;
+      if (started || starting) return;
       if (a.readyState < 3 || b.readyState < 3) return;
-      started = true;
+      starting = true;
       a.currentTime = 0;
       b.currentTime = 0;
-      void a.play().catch(() => {});
-      void b.play().catch(() => {});
+      void Promise.all([a.play(), b.play()])
+        .then(() => { started = true; })
+        .catch(() => { /* Blocked or interrupted; a later canplay or a touch retries. */ })
+        .finally(() => { starting = false; });
     };
 
     const tick = () => {
@@ -240,10 +264,13 @@ export default function CompareSlider({
     const release = () => {
       if (!holding) return;
       if (a.readyState < 3 || b.readyState < 3) return;
-      holding = false;
       b.currentTime = a.currentTime;
-      void a.play().catch(() => {});
-      void b.play().catch(() => {});
+      /* Same rule as startBoth: the hold is only lifted once both are really
+       * playing again, so a rejected resume is retried rather than leaving the
+       * pair stopped with `holding` false and nothing left to notice. */
+      void Promise.all([a.play(), b.play()])
+        .then(() => { holding = false; })
+        .catch(() => {});
     };
     for (const v of [a, b]) {
       v.addEventListener('canplay', startBoth);
@@ -252,11 +279,27 @@ export default function CompareSlider({
       v.addEventListener('canplay', release);
       v.addEventListener('canplaythrough', release);
     }
+    /*
+     * The gesture every mobile autoplay policy is waiting for. Passive and on
+     * the capture phase so it cannot interfere with the divider's own drag, and
+     * it costs nothing once the clips are running.
+     */
+    const onGesture = () => {
+      if (!started) { startBoth(); return; }
+      /* Started once, stopped since — a refused resume after a stall, or a
+       * platform that paused the media on its own. A touch puts it back. */
+      if (a.paused || b.paused) { holding = true; release(); }
+    };
+    document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
+    document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
+
     startBoth();
     raf = requestAnimationFrame(tick);
 
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener('pointerdown', onGesture, { capture: true });
+      document.removeEventListener('touchstart', onGesture, { capture: true });
       for (const v of [a, b]) {
         v.removeEventListener('canplay', startBoth);
         v.removeEventListener('waiting', hold);
