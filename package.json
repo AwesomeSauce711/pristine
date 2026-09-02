@@ -22,7 +22,8 @@
     "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts",
     "db:reset-test": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/reset-test-data.mts",
     "canary": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/canary.mts",
-    "verify:sync": "tsx scripts/verify-sync.mts"
+    "verify:sync": "tsx scripts/verify-sync.mts",
+    "runthrough": "bash scripts/runthrough.sh"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

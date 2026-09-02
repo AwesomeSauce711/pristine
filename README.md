@@ -245,18 +245,25 @@ Wait more than two minutes before reading anything back. `videoQuality` reports
 
 ## Still to do
 
-- **Card fingerprints are never captured**, so `trial_one_per_card` cannot bind.
-  It has to be read from the PaymentMethod at `checkout.session.completed` — a
-  $0 trial invoice has no charge to read one from. Wallet payments (Link) expose
-  none at all, which is why the trial quota is the control that actually bounds
-  the loss.
+- **Invoices carry no card details.** The fingerprint IS captured where it
+  matters — `recordTrialGrant` reads it from the PaymentMethod at
+  `checkout.session.completed`, so `trial_one_per_card` does bind for card
+  payments. What is missing is `invoices.card_last4` and friends, which only feed
+  dispute evidence, and the consent record is the far stronger item there.
+  Populating them costs an extra Stripe round trip inside an already-slow webhook,
+  which is why it has not been done.
+  Wallet payments (Link) expose no fingerprint at all, which is why the trial
+  quota — not the fingerprint — is the control that actually bounds the loss.
 - **Stripe Radar controls** are dashboard settings: free-trial abuse, bot
   detection, refund abuse, adaptive 3DS. Enable one at a time and watch the block
   rate; on a low-priced product an over-tight rule bleeds sales invisibly.
 - **`STRIPE_TOS_CONSENT`** stays 0 until a Terms of Service URL is set in
   Settings -> Public details. Until then there is no affirmative consent
   checkbox anywhere, only the disclosure text above Stripe's pay button.
-- **Webhook responses average ~2.8s**, close enough to Stripe's timeout to be
-  worth measuring. Most likely Railway and Neon in different regions.
+- **Webhook responses average ~2.8s.** Slower than it should be — most likely
+  Railway and Neon in different regions, plus a Stripe round trip per handler.
+  Worth fixing for headroom, but NOT the emergency an earlier note implied: it is
+  well inside Stripe's response window, and the observed run delivered 5 of 5
+  events with zero failures.
 - **The `plans` table is unused.** Pricing renders from `src/lib/plans.ts`.
   Either seed it from `stripe:seed` as a drift check, or drop it.
