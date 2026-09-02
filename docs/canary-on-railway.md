@@ -23,10 +23,32 @@ note at the top of `scripts/canary.mts`.
 
 ## Setting it up — once, in the Railway dashboard
 
-In the SAME project as the site, so it can share the database.
+NO NEW GITHUB REPO. One repo, one Railway project, two services inside it:
 
-1. **New → GitHub Repo →** `AwesomeSauce711/pristine`. This makes a second
-   service from the same repo. Name it `canary`.
+    GitHub: AwesomeSauce711/pristine        <- one repo, unchanged
+                     |
+             +-------+-------+
+             v               v
+    Railway project "pristine"
+      +-- service: web       npm start        (already there)
+      +-- service: canary    npm run canary   (what you are adding)
+
+A Railway project is a container for services; you already have the web
+service and Postgres in this one. Both code services build from the same repo
+and the same commit and differ only in the command they run, which is what
+railway.canary.json sets.
+
+It must go in the SAME project as the site, or it cannot reference the
+database.
+
+1. Open the existing **pristine** project — the canvas with the web service and
+   Postgres tiles on it. Press **Cmd/Ctrl+K** and type "new service", or click
+   **`+ New`** at the top right OF THAT CANVAS (labelled **Create** in some
+   versions). Clicking New from the dashboard home instead makes a whole new
+   project, which is the mistake to avoid.
+
+   Choose **GitHub Repo → `AwesomeSauce711/pristine`** — the same one already
+   deployed. A new tile appears beside the web service. Name it `canary`.
 
 2. **Settings → Config-as-code → Path:** `railway.canary.json`
 
