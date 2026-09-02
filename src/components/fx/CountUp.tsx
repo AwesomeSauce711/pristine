@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * A figure that counts up to itself the first time it is seen.
@@ -109,7 +110,7 @@ export default function CountUp({ value, duration = 1400, className, delay = 0, 
     const el = ref.current;
     if (!el || !run || duration <= 0) return;
     if (typeof IntersectionObserver === 'undefined' || typeof window.matchMedia !== 'function') return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (stillQuery().matches) return;
 
     /*
      * Only now is it safe to hide the figure: we know we can show it again.

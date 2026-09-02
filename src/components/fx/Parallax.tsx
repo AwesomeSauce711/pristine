@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * Moves its children a little slower than the page.
@@ -29,7 +30,7 @@ export default function Parallax({ children, speed = 0.18, className }: Props) {
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof window.matchMedia !== 'function') return;
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const still = stillQuery();
     if (still.matches) return;
 
     let raf = 0;

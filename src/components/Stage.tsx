@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { stillQuery, useSceneLite } from '@/lib/scene-tier';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import EngagementBloom from '@/components/EngagementBloom';
 import Holograms from '@/components/Holograms';
@@ -130,6 +131,7 @@ export default function Stage({
   t, width = 400, children, className, hand = true, onFirstGesture,
   aspect = 16 / 9, descriptors, illustrative = false, pristine, holograms = true,
 }: Props) {
+  const lite = useSceneLite();
   const stageRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const phoneRef = useRef<HTMLDivElement>(null);
@@ -178,7 +180,7 @@ export default function Stage({
     if (!stage || !phone || !overlay) return;
     const still =
       typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        ? stillQuery()
         : null;
 
     /* The tilt: one transform, written to both groups, eased toward the store. */
@@ -366,7 +368,11 @@ export default function Stage({
         {/* The hand's box is the phone's; its canvases are centred on it and
             reach well past it. No z-index, transform or opacity on this
             wrapper — the canvases must find the column's stacking context. */}
-        {hand && near && (
+        {/* Not on a lite device: this is a second WebGL context plus a Draco
+            decode, behind a phone mockup that already carries the video. Two
+            contexts on a phone is the single most reliable way to make it
+            drop frames. */}
+        {hand && near && !lite && (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 top-0"

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sceneIsLite } from '@/lib/scene-tier';
 import EngagementRail from '@/components/EngagementRail';
 import { play } from '@/lib/sound';
 import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
@@ -137,23 +138,46 @@ export default function PreviewCompare({
 
   useEffect(() => {
     const v = videoRef.current;
-    const main = canvasRef.current;
+    const c = canvasRef.current;
     const wrap = wrapRef.current;
-    if (!v || !main || !wrap) return;
-    const mctx = main.getContext('2d', { alpha: false });
-    if (!mctx) return;
-
-    /* The crushed side is rendered here first, small, then drawn back up. That
-     * throwing away and putting back IS the detail loss being shown. */
-    const crush = document.createElement('canvas');
-    const cctx = crush.getContext('2d', { alpha: false });
-    if (!cctx) return;
-
+    if (!v || !c || !wrap) return;
+    const ctx = c.getContext('2d', { alpha: false });
+    if (!ctx) return;
     // Resizing a canvas resets its context, filter included, so the look is set
     // per draw rather than once here.
-    const canFilter = 'filter' in cctx;
+    const canFilter = 'filter' in ctx;
 
+    /*
+     * THE CLEAN SIDE IS THE VIDEO. ONLY THE CRUSHED SIDE IS DRAWN.
+     *
+     * The previous version drew both halves onto one full-resolution canvas so
+     * they could never be a frame apart. On a phone that was the lag: every
+     * presented frame of a 4K60 file was copied out of the decoder into a
+     * device-pixel canvas twice -- a GPU-to-CPU trip per copy -- while the page
+     * was decoding the same 4K60 underneath. The decoder was being starved by
+     * the thing showing its output.
+     *
+     * The <video> element composites for free: the decoder hands frames to
+     * the compositor and nothing touches them. So the clean side is the
+     * element again, and the only copy per frame is the SMALL one -- the
+     * crushed canvas, at the reduced size that is the whole argument.
+     *
+     * WHY THEY ARE STILL THE SAME FRAME
+     * `requestVideoFrameCallback` fires when the browser presents a new video
+     * frame, with that frame ready to draw. Drawing there means the canvas
+     * shows the very frame the element is compositing -- not the frame a
+     * requestAnimationFrame happened to catch, and not one held back to fake a
+     * lower rate (that throttle was what read as the halves being out of
+     * step). Where the API is missing, requestAnimationFrame stands in and the
+     * canvas is at worst the frame the element just left.
+     */
     let raf = 0;
+    let vfc = 0;
+    const rvfc = v as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const hasVfc = typeof rvfc.requestVideoFrameCallback === 'function';
 
     const size = () => {
       if (!v.videoWidth) return;
@@ -163,8 +187,8 @@ export default function PreviewCompare({
       /*
        * The reduction is relative to the SCREEN, not to the source.
        *
-       * The first version compared the delivered rung to the source — 720
-       * against 2160 — and drew the crushed side at a third of the width. That
+       * The first version compared the delivered rung to the source -- 720
+       * against 2160 -- and drew the crushed side at a third of the width. That
        * is not what anyone sees. Nobody watches a 4K file at 4K on a phone: both
        * versions are displayed on a screen about 1080 physical pixels wide. So
        * the real comparison is 720 upscaled to 1080 (a 1.5x stretch) against a
@@ -182,66 +206,32 @@ export default function PreviewCompare({
       const clean = Math.min(shortEdge, PHONE_SCREEN_PX);
       const reduction = Math.min(1, delivered / clean);
 
-      // Work in device pixels, or a 2x screen hides the difference entirely.
-      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 3) : 1;
+      // Work in device pixels, or a 2x screen hides the difference entirely;
+      // but no more than 2x on a lite device, where every pixel is a copy.
+      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 2 : 3);
       const physicalW = (wrap.clientWidth || 300) * dpr;
 
-      main.width = Math.max(16, Math.round(physicalW));
-      main.height = Math.max(16, Math.round(physicalW * aspect));
-      crush.width = Math.max(16, Math.round(physicalW * reduction));
-      crush.height = Math.max(16, Math.round(physicalW * reduction * aspect));
+      c.width = Math.max(16, Math.round(physicalW * reduction));
+      c.height = Math.max(16, Math.round(physicalW * reduction * aspect));
     };
 
-    /*
-     * BOTH SIDES ARE DRAWN, from the same frame, on the same tick.
-     *
-     * The clean side used to be the <video> element itself, showing through
-     * beside the canvas. That is two render paths on two schedules: the element
-     * composites on the browser's own clock while the canvas draws on
-     * requestAnimationFrame, so the canvas is always at least the frame it
-     * could reach. Worse, the canvas was deliberately redrawn only `targetFps`
-     * times a second to represent the halved frame rate — which meant the
-     * crushed side was showing a frame up to 33ms old NEXT TO a live one. That
-     * reads as the two halves being out of step, and it was reported as such.
-     *
-     * WHY THE FRAME-RATE SIMULATION HAD TO GO
-     * It is not possible to show temporal loss and perfect sync at the same
-     * time: at 30fps the correct frame to show IS the older one, half the time.
-     * In a split screen that is indistinguishable from a bug, and it costs the
-     * comparison its credibility. The frame rate is stated in the spec line
-     * over the crushed side, where it is read rather than guessed at. What the
-     * picture argues is the detail loss, and that is unaffected.
-     *
-     * So: the crushed side is rendered small (the reduction below is the whole
-     * argument) into an offscreen canvas and drawn back up, and the clean side
-     * is drawn at full size, both from `v` in one pair of calls. Same frame, by
-     * construction — the same thing the landing page comparison does.
-     */
-    const draw = () => {
-      if (v.readyState >= 2 && v.videoWidth && main.width > 0) {
-        const split = Math.max(0, Math.min(main.width, (main.width * posRef.current) / 100));
-
-        /* Clean, underneath and whole. */
-        mctx.filter = 'none';
-        mctx.drawImage(v, 0, 0, main.width, main.height);
-
-        /* Crushed, over it, clipped to the left of the handle. */
-        if (split > 0 && crush.width > 0) {
-          if (canFilter) cctx.filter = CRUSH_LOOK;
-          cctx.drawImage(v, 0, 0, crush.width, crush.height);
-          mctx.save();
-          mctx.beginPath();
-          mctx.rect(0, 0, split, main.height);
-          mctx.clip();
-          mctx.drawImage(crush, 0, 0, crush.width, crush.height, 0, 0, main.width, main.height);
-          mctx.restore();
-        }
+    const paint = () => {
+      if (v.readyState >= 2 && c.width > 0) {
+        if (canFilter) ctx.filter = CRUSH_LOOK;
+        ctx.drawImage(v, 0, 0, c.width, c.height);
       }
-      raf = requestAnimationFrame(draw);
+    };
+    const onFrame = () => {
+      paint();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+    };
+    const tick = () => {
+      paint();
+      raf = requestAnimationFrame(tick);
     };
 
     /*
-     * `play()` is rejected more often than the autoplay rules suggest — iOS Low
+     * `play()` is rejected more often than the autoplay rules suggest -- iOS Low
      * Power Mode, Data Saver, a backgrounded tab. A refusal is never final: the
      * next `canplay` and the first touch anywhere both try again.
      */
@@ -262,9 +252,17 @@ export default function PreviewCompare({
     ro.observe(wrap);
 
     start();
-    raf = requestAnimationFrame(draw);
+    if (hasVfc) {
+      /* One draw per presented frame, and none at all while paused. The first
+       * paint is immediate so a refused autoplay still shows a correct split. */
+      paint();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+    } else {
+      raf = requestAnimationFrame(tick);
+    }
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
+      if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
       ro.disconnect();
       v.removeEventListener('loadedmetadata', size);
       v.removeEventListener('canplay', start);
@@ -397,25 +395,25 @@ export default function PreviewCompare({
       className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
                  rounded-[38px] bg-black"
     >
-      {/* The source. Off-screen but never `display:none` and never zero-sized:
-          a hidden element may be throttled or left undecoded, and the canvas
-          would have nothing to draw. */}
+      {/* Clean side -- the video itself, composited by the browser at no cost.
+          Not autoPlay: the effect starts it and retries a refusal. */}
       <video
         ref={videoRef}
         src={src}
         muted loop playsInline
-        aria-hidden="true"
-        className="pointer-events-none absolute h-px w-px opacity-0"
-      />
-
-      {/* Both halves, from the same frame, every frame. No clip path here: the
-          split is a clip inside the draw, so the two sides cannot disagree
-          about where the handle is any more than about which frame it is. */}
-      <canvas
-        ref={canvasRef}
-        aria-hidden="true"
         className="absolute inset-0 h-full w-full object-cover"
       />
+
+      {/* Crushed side, clipped to the left of the handle, drawn from the same
+          presented frame (see the effect). Its look is drawn in (CRUSH_LOOK),
+          so the element itself carries no filter. */}
+      <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+        <canvas
+          ref={canvasRef}
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      </div>
 
       {/* Legibility wash, top and bottom, over both halves. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />

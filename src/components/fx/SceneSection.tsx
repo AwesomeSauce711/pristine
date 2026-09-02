@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, type ReactNode } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * A section of the page that is a space rather than a surface.
@@ -66,7 +67,7 @@ export default function SceneSection({ children, className, id }: Props) {
     const el = ref.current;
     if (!el || typeof window.matchMedia !== 'function') return;
     // Read live, so a preference changed mid-visit is honoured.
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const still = stillQuery();
 
     /*
      * Only this section's own layers. SceneNav and the stage carry

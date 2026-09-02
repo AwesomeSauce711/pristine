@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * The cursor's wake: glowing hearts — and, less often, a comment bubble, a
@@ -94,7 +95,7 @@ export default function CursorTrail() {
     const canvas = ref.current;
     if (!canvas) return;
     if (typeof window.matchMedia === 'function') {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      if (stillQuery().matches) return;
       if (window.matchMedia('(hover: none)').matches) return;
     }
     const ctx = canvas.getContext('2d');

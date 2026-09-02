@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * A control that leans toward the pointer.
@@ -39,7 +40,7 @@ export default function Magnetic({ children, strength = 0.35, radius = 90, class
     if (!el || typeof window.matchMedia !== 'function') return;
     // Read per event rather than once, so a preference changed mid-visit is
     // honoured without listeners.
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const still = stillQuery();
     const coarse = window.matchMedia('(hover: none), (pointer: coarse)');
 
     let raf = 0;

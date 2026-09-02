@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * A card that tilts toward the pointer, with a soft spotlight under it.
@@ -51,7 +52,7 @@ export default function Tilt({ children, className, max = 8, glare = true, scale
     // Kept as live lists and read per event, so a preference changed while
     // the page is open is honoured without any listeners.
     media.current = {
-      still: window.matchMedia('(prefers-reduced-motion: reduce)'),
+      still: stillQuery(),
       coarse: window.matchMedia('(hover: none), (pointer: coarse)'),
     };
     return () => {

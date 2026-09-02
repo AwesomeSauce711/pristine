@@ -1,3 +1,4 @@
+import { sceneIsLite } from '@/lib/scene-tier';
 /*
  * stage-motion.ts — where the reader is "looking", as one pair of numbers.
  *
@@ -207,7 +208,11 @@ export function subscribeMotion(fn: (m: Motion) => void): () => void {
     /* Android needs no prompt and starts here. iOS asks permission with a
      * system dialog, which is never raised behind someone's back: the stage
      * shows a "tilt" button and the tap on that asks (requestGyro). */
-    if (coarse && !gyroNeedsPermission()) installGyro();
+    /* Not on a lite device (which every phone is): a phone is never quite
+     * still, so the gyroscope kept every follow-the-reader loop -- the stage,
+     * the plates, the galaxy, the field -- awake and painting for as long as
+     * the page was open. The stage's own tilt button still asks for it. */
+    if (coarse && !sceneIsLite() && !gyroNeedsPermission()) installGyro();
   }
   fn(state);
   return () => {

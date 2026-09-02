@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, type CSSProperties } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * A wireframe globe: nine latitude rings and twelve meridians on a 2D canvas.
@@ -199,7 +200,7 @@ export default function Globe({ size, interactive = true, className, tone = 'whi
 
     const motionMq =
       typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        ? stillQuery()
         : null;
     let reduced = motionMq?.matches ?? false;
 

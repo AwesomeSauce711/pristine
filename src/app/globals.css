@@ -1538,7 +1538,7 @@ body {
 .holo-float {
   animation: holo-float 4.4s ease-in-out infinite;
 }
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .holo-particle { display: none; }
   .holo-float { animation: none; }
 }
@@ -1620,7 +1620,7 @@ body {
   0%   { transform: translateX(-120%) rotate(18deg); }
   55%, 100% { transform: translateX(520%) rotate(18deg); }
 }
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .tier-orb, .tier-sweep, .tier-year.plate-face::before { animation: none; }
   .tier-spark { display: none; }
 }
@@ -1714,7 +1714,7 @@ body {
     transform: translateY(-4px) translateZ(0);
   }
 }
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .pricing-rise, .price-pop, .tier-aura { animation: none; }
   .tier-card:hover { transform: translateZ(0); }
 }
@@ -1882,6 +1882,28 @@ body {
   0%, 100% { opacity: 0.75; transform: scale(0.92); }
   50%      { opacity: 1; transform: scale(1.06); }
 }
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .bloom-shape, .bloom-halo { animation: none; }
+}
+
+/*
+ * PHONES HOLD STILL — the CSS half of src/lib/scene-tier.ts.
+ *
+ * Four of the reduced-motion blocks above now also match `(pointer: coarse)`:
+ * the drifting holograms, the pricing orbs and sparks, the breathing auras and
+ * the bloom. Each is a large, soft, continuously animated layer, and on a phone
+ * each one is a full-screen repaint every frame for as long as the page is
+ * open. Together with the loops that scene-tier.ts stops, this is what was
+ * running a phone hot and starving the video decoder.
+ *
+ * And the one backdrop blur. A backdrop-filter re-samples everything behind it
+ * every frame, and behind it here is a moving canvas; on a phone GPU that is
+ * the most expensive single property on the page. The panel keeps its tint
+ * and hairline, so it still reads as glass — it just stops being a lens.
+ */
+@media (pointer: coarse) {
+  .glass-iri {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }

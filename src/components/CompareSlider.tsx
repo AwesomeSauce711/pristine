@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { play } from '@/lib/sound';
 import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
+import { sceneIsLite } from '@/lib/scene-tier';
 
 /*
  * The before/after comparison.
@@ -100,6 +101,9 @@ export function splitDraw(videoW: number, videoH: number, canvasW: number, canva
   };
 }
 
+/* Who wants to know the split moved, between video frames (see WHEN TO DRAW). */
+const splitListeners = new Set<() => void>();
+
 export default function CompareSlider({
   src, poster, onPositionChange, motionDrive = false,
 }: Props) {
@@ -134,6 +138,36 @@ export default function CompareSlider({
     );
     io.observe(el);
     return () => io.disconnect();
+  }, []);
+
+
+  /*
+   * Every change to the split goes through here, and the parent hears about
+   * it in the same tick. It used to be reported from an effect on `pos`,
+   * which meant each frame of a drag or a motion-drive scheduled a second
+   * render from inside React's passive-effect flush — the exact pattern
+   * React's "maximum update depth" warning watches for, and it fired once
+   * the split had been moving for a while. Reporting synchronously batches
+   * the child's and the parent's updates into one render instead.
+   */
+  const posRef = useRef(pos);
+  const reportRef = useRef(onPositionChange);
+  useEffect(() => { reportRef.current = onPositionChange; }, [onPositionChange]);
+  /* The chime, once per crossing toward Pristine, played in the same tick as
+   * the crossing itself rather than from an effect after the paint — so it
+   * lands with the picture, not a frame behind it. Armed from the start: the
+   * first reveal is the one that matters. */
+  const revealArmed = useRef(true);
+  const commitPos = useCallback((next: number) => {
+    for (const fn of splitListeners) fn();
+    posRef.current = next;
+    setPos(next);
+    reportRef.current?.(next);
+    if (next > REVEAL_REARM_ABOVE) revealArmed.current = true;
+    else if (revealArmed.current && next <= REVEAL_AT) {
+      revealArmed.current = false;
+      play('reveal');
+    }
   }, []);
 
   /*
@@ -178,7 +212,7 @@ export default function CompareSlider({
     /* Device pixels, or a 2x screen throws away the difference being shown. */
     const size = () => {
       if (!v.videoWidth) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 2 : 3);
       const w = Math.max(16, Math.round((wrap.clientWidth || 300) * dpr));
       c.width = w;
       c.height = Math.max(16, Math.round((w * v.videoHeight) / (v.videoWidth / 2)));
@@ -198,7 +232,30 @@ export default function CompareSlider({
           ctx.restore();
         }
       }
-      raf = requestAnimationFrame(draw);
+    };
+
+    /*
+     * WHEN TO DRAW
+     * `requestVideoFrameCallback` fires once per presented video frame — sixty
+     * times a second for this clip, not the 120 a ProMotion phone's animation
+     * frame runs at, and not at all while the clip is paused or buffering. That
+     * halves the work on the phones that could least afford it and lets the
+     * page go quiet whenever the picture is not changing. But the handle moves
+     * between video frames, so a drag also draws, on its own animation frame:
+     * the divider must follow the finger, not the clip.
+     */
+    let vfc = 0;
+    const rvfc = v as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const hasVfc = typeof rvfc.requestVideoFrameCallback === 'function';
+    const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
+    const tick = () => { draw(); raf = requestAnimationFrame(tick); };
+    let dragRaf = 0;
+    const onSplit = () => {
+      if (!hasVfc || dragRaf) return;
+      dragRaf = requestAnimationFrame(() => { dragRaf = 0; draw(); });
     };
 
     /*
@@ -223,10 +280,21 @@ export default function CompareSlider({
 
     if (v.videoWidth) size();
     start();
-    raf = requestAnimationFrame(draw);
+    if (hasVfc) {
+      draw();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+      v.addEventListener('loadedmetadata', draw);
+      splitListeners.add(onSplit);
+    } else {
+      raf = requestAnimationFrame(tick);
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
+      if (dragRaf) cancelAnimationFrame(dragRaf);
+      if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
+      v.removeEventListener('loadedmetadata', draw);
+      splitListeners.delete(onSplit);
       ro.disconnect();
       v.removeEventListener('loadedmetadata', size);
       v.removeEventListener('canplay', start);
@@ -234,34 +302,6 @@ export default function CompareSlider({
       document.removeEventListener('touchstart', onGesture, { capture: true });
     };
   }, [visible]);
-
-  /*
-   * Every change to the split goes through here, and the parent hears about
-   * it in the same tick. It used to be reported from an effect on `pos`,
-   * which meant each frame of a drag or a motion-drive scheduled a second
-   * render from inside React's passive-effect flush — the exact pattern
-   * React's "maximum update depth" warning watches for, and it fired once
-   * the split had been moving for a while. Reporting synchronously batches
-   * the child's and the parent's updates into one render instead.
-   */
-  const posRef = useRef(pos);
-  const reportRef = useRef(onPositionChange);
-  useEffect(() => { reportRef.current = onPositionChange; }, [onPositionChange]);
-  /* The chime, once per crossing toward Pristine, played in the same tick as
-   * the crossing itself rather than from an effect after the paint — so it
-   * lands with the picture, not a frame behind it. Armed from the start: the
-   * first reveal is the one that matters. */
-  const revealArmed = useRef(true);
-  const commitPos = useCallback((next: number) => {
-    posRef.current = next;
-    setPos(next);
-    reportRef.current?.(next);
-    if (next > REVEAL_REARM_ABOVE) revealArmed.current = true;
-    else if (revealArmed.current && next <= REVEAL_AT) {
-      revealArmed.current = false;
-      play('reveal');
-    }
-  }, []);
   /* The starting split, once, so a parent that renders from it is not stale. */
   useEffect(() => { reportRef.current?.(posRef.current); }, []);
 

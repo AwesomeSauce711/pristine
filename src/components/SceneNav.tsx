@@ -7,6 +7,7 @@ import SoundToggle from '@/components/SoundToggle';
 import Wordmark from '@/components/Wordmark';
 import { play, soundProps } from '@/lib/sound';
 import { subscribeMotion } from '@/lib/stage-motion';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * The navigation, as scenery.
@@ -130,17 +131,17 @@ const APP_DOCK_DELAY_MS = 700;
 
 /* ------------------------------------------------------------- helpers */
 
-const STILL_QUERY = '(prefers-reduced-motion: reduce)';
-
 const canMatchMedia = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function';
 
+/* The shared "hold still" query (src/lib/scene-tier.ts): reduced motion, or a
+ * phone. The parallax is one of the loops a phone could not afford. */
 function subscribeStill(onChange: () => void) {
   if (!canMatchMedia()) return () => {};
-  const mq = window.matchMedia(STILL_QUERY);
+  const mq = stillQuery();
   mq.addEventListener('change', onChange);
   return () => mq.removeEventListener('change', onChange);
 }
-const getStill = () => canMatchMedia() && window.matchMedia(STILL_QUERY).matches;
+const getStill = () => canMatchMedia() && stillQuery().matches;
 const getStillOnServer = () => false;
 
 /** The reduced-motion preference, as render state, without a mismatch on hydration. */
@@ -168,7 +169,7 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
     if (!layer || !canMatchMedia()) return;
     const items = Array.from(layer.querySelectorAll<HTMLElement>('[data-depth]'));
     if (items.length === 0) return;
-    const stillList = window.matchMedia(STILL_QUERY);
+    const stillList = stillQuery();
     const amp = PARALLAX_PX[variant];
 
     const depth = items.map((el) => Number(el.dataset.depth) || 0);

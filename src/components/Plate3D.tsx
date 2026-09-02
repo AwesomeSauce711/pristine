@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { play } from '@/lib/sound';
+import { stillQuery } from '@/lib/scene-tier';
 import { subscribeMotion, type Motion } from '@/lib/stage-motion';
 
 /*
@@ -219,7 +220,7 @@ function onVisibility() {
 
 function install() {
   if (typeof window.matchMedia === 'function') {
-    still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    still = stillQuery();
     fine = window.matchMedia('(hover: hover) and (pointer: fine)');
   }
   if (typeof IntersectionObserver !== 'undefined') {

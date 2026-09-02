@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 import { subscribeMotion } from '@/lib/stage-motion';
 
 /*
@@ -217,7 +218,7 @@ export default function Starfield({ density = 1, className }: Props) {
 
     const reduce =
       typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        ? stillQuery()
         : null;
     let still = reduce?.matches ?? false;
     let hidden = document.hidden;

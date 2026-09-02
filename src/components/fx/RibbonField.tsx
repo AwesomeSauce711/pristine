@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { stillQuery } from '@/lib/scene-tier';
 
 /*
  * The hero's iridescent chrome ribbon.
@@ -416,7 +417,7 @@ export default function RibbonField({
     }
     const ctx = gl;
 
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const reduce = stillQuery();
     let still = reduce.matches;
     let hidden = document.hidden;
     let inView = true;

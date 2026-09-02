@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { getMotion, subscribeMotion } from '@/lib/stage-motion';
 import { play } from '@/lib/sound';
+import { sceneIsLite } from '@/lib/scene-tier';
 
 /*
  * The engagement rain behind the hero: the reader's numbers going up.
@@ -1467,7 +1468,12 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
       );
       W = w;
       H = h;
-      renderer.setPixelRatio(dpr);
+      /* On a lite device (every phone) render at 1x. The field is fill-rate
+       * bound -- three hundred additive sprites over the whole hero -- and a 3x
+       * phone at full ratio pushes nine times the pixels of the same scene at
+       * 1x. The browser scales the canvas up; on sprites this soft, nobody can
+       * tell. This is what lets the rain stay on phones at all. */
+      renderer.setPixelRatio(sceneIsLite() ? Math.min(dpr, 1) : dpr);
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       /* Fitted to the height so world units are CSS px on the z = 0 plane. */
