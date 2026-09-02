@@ -85,7 +85,7 @@ export async function syncSubscription(
     firstPaidAt: prior?.firstPaidAt ?? null,
     lastEventCreated: eventCreated ?? prior?.lastEventCreated ?? null,
     syncedAt: new Date(),
-    raw: sub as unknown as Record<string, unknown>,
+    raw: redact(sub),
   };
 
   /*
@@ -224,6 +224,38 @@ export async function restoreEntitlement(userId: string): Promise<void> {
  * `ended_at` is checked because a subscription that has already stopped is not
  * "scheduled to" stop — it is done, and `status` covers it.
  */
+/**
+ * Strip personal data out of the Stripe object before storing it.
+ *
+ * The full Subscription carries `default_payment_method.billing_details` —
+ * cardholder name, email, phone and postal code. None of it was ever read: this
+ * column has no reader anywhere in the codebase, it exists so a webhook problem
+ * can be diagnosed after the fact. Keeping identity data indefinitely for a use
+ * that never happens is the exact thing data minimisation is about, and the
+ * privacy policy does not disclose collecting a name or a postal code — so the
+ * choice is to disclose it or to stop doing it, and stopping is better.
+ *
+ * What stays is the shape of the subscription: statuses, ids, dates, the price.
+ * That is what makes a bad sync legible, and none of it identifies anyone on its
+ * own.
+ */
+function redact(sub: Stripe.Subscription): Record<string, unknown> {
+  const raw = JSON.parse(JSON.stringify(sub)) as Record<string, unknown>;
+
+  const pm = raw.default_payment_method as Record<string, unknown> | null | undefined;
+  if (pm && typeof pm === 'object') {
+    delete pm.billing_details;
+    // The card's own fields — brand, last4, funding, country — are disclosed and
+    // useful. `fingerprint` is not disclosed and identifies a card across
+    // customers, so it goes.
+    const card = pm.card as Record<string, unknown> | undefined;
+    if (card) delete card.fingerprint;
+  }
+  delete raw.customer_details;
+
+  return raw;
+}
+
 export function isScheduledToEnd(sub: Stripe.Subscription): boolean {
   if (sub.ended_at) return false;
   if (sub.cancel_at_period_end) return true;

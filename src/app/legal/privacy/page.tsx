@@ -46,7 +46,8 @@ export default function Privacy() {
         <li><strong>Sign-in and session records</strong> — hashed session tokens, IP address, and
           browser user agent — to keep your account secure and let you sign out everywhere.</li>
         <li><strong>Subscription and payment records</strong> from Stripe: plan, status, renewal
-          dates, invoices, and the last four digits and country of your card.</li>
+          dates and invoices. Your card details stay with Stripe — we do not receive or store
+          them, not even the last four digits.</li>
         <li><strong>Your agreement to the subscription terms</strong>: the exact wording shown to
           you, with a timestamp, IP address and user agent. We are required to be able to
           demonstrate this, and it protects you as much as us.</li>
@@ -87,8 +88,10 @@ export default function Privacy() {
 
       <h2>Cookies</h2>
       <p>
-        One cookie, for your sign-in session. It is essential to the service and is not used for
-        tracking or advertising, so there is no banner to click.
+        Two cookies, both essential. One keeps you signed in. The other exists only while you are
+        paying, so that when you return from the payment page we can tell it was the same browser
+        that started. Neither is used for tracking or advertising, and we run no analytics, so
+        there is no banner to click.
       </p>
 
       <h2>Contact</h2>
