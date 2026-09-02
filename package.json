@@ -11,7 +11,7 @@
     "verify:patch": "tsx --conditions=react-server scripts/verify-port.ts",
     "verify:scan": "tsx scripts/verify-scan.mts",
     "verify:entitlement": "tsx --conditions=react-server scripts/verify-entitlement.mts",
-    "verify": "npm run typecheck && npm run verify:patch && npm run verify:elst && npm run verify:scan && npm run verify:entitlement",
+    "verify": "npm run typecheck && npm run verify:patch && npm run verify:elst && npm run verify:scan && npm run verify:entitlement && npm run verify:sync",
     "check:legal": "node --env-file-if-exists=.env.local node_modules/tsx/dist/cli.mjs scripts/check-legal.mts",
     "stripe:seed": "node --env-file-if-exists=.env.local node_modules/tsx/dist/cli.mjs scripts/stripe-seed.mts",
     "db:generate": "drizzle-kit generate",
@@ -21,7 +21,8 @@
     "method:status": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/method-status.mts",
     "disputes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/disputes.mts",
     "db:reset-test": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/reset-test-data.mts",
-    "canary": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/canary.mts"
+    "canary": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/canary.mts",
+    "verify:sync": "tsx scripts/verify-sync.mts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

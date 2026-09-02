@@ -1,0 +1,37 @@
+# Is the live site still working?
+#
+# Runs the checks that need nothing but HTTP: the site responds, the paywall
+# holds, the webhook secret is configured, and checkout still reaches Stripe.
+#
+# NOT run here: the byte-equality anchors, which need reference media that is
+# deliberately not in the repo, and the staleness nag, which needs the database.
+# Both are skipped explicitly rather than allowed to pass vacuously — a canary
+# that reports green having checked nothing is worse than no canary.
+#
+# No secrets are needed, which is the point: a production connection string on a
+# build runner would be a worse risk than the failures this catches.
+
+name: canary
+
+on:
+  schedule:
+    - cron: '17 13 * * *'   # daily, off the hour to avoid the stampede
+  workflow_dispatch:         # and on demand
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: canary
+        env:
+          CANARY_ORIGIN: https://pristine4k.com
+        run: npm run canary -- --http-only

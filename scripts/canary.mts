@@ -43,6 +43,8 @@ const STALE_AFTER_DAYS = 7;
 
 const args = process.argv.slice(2);
 const confirmIdx = args.indexOf('--confirm');
+/* For CI, where the reference media and the database are both absent. */
+const httpOnly = args.includes('--http-only');
 
 /* ------------------------------------------------------- human confirmation */
 
@@ -102,11 +104,30 @@ async function http(path: string, init?: RequestInit): Promise<{ status: number;
  * longer the file that was measured working — which is the one regression that
  * would be invisible from the outside.
  */
-for (const [label, script] of [['4K60 anchor', 'verify:patch'], ['edit-list anchor', 'verify:elst']] as const) {
-  const r = spawnSync('npm', ['run', '--silent', script], { encoding: 'utf8', shell: true });
-  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-  const skipped = out.includes('skipped');
-  add(label, r.status === 0, skipped ? 'skipped — reference files not on this machine' : (r.status === 0 ? 'byte-identical' : 'DRIFTED'), !skipped);
+if (!httpOnly) {
+  for (const [label, script, proof] of [
+    ['4K60 anchor', 'verify:patch', 'byte-for-byte the file TikTok accepted'],
+    ['edit-list anchor', 'verify:elst', 'reproduces the accepted upload'],
+  ] as const) {
+    const r = spawnSync('npm', ['run', '--silent', script], { encoding: 'utf8', shell: true });
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+
+    /*
+     * Both anchor scripts guard their byte-equality assertions with existsSync
+     * and exit 0 when the reference files are absent. So a green exit code alone
+     * would let this report "byte-identical" having compared nothing — a false
+     * pass, which is worse than a failure because it is believed. Look for the
+     * assertion's own text instead of trusting the status.
+     */
+    const actuallyCompared = out.includes(proof);
+    if (r.status !== 0) {
+      add(label, false, 'DRIFTED');
+    } else if (actuallyCompared) {
+      add(label, true, 'byte-identical');
+    } else {
+      add(label, false, 'NOT CHECKED — reference file missing on this machine', false);
+    }
+  }
 }
 
 const home = await http('/');

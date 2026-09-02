@@ -38,7 +38,28 @@ interface Props {
  * the in-app preview there is no single source to draw both from. Correction is
  * the only option here.
  */
-const MAX_DRIFT_SEC = 0.034;
+/* Half a frame of the 30fps side — below this, nobody can tell. */
+const MAX_DRIFT_SEC = 0.017;
+/* Past this, only a seek closes it: a loop wrap, a stall, or a buffering pause. */
+const RESEEK_SEC = 0.25;
+
+/**
+ * What to do about a given drift, as a pure decision.
+ *
+ * Extracted so it can be tested. The rest of the sync is DOM and timing, which
+ * needs a real browser and a visible page — `requestAnimationFrame` is throttled
+ * to zero on a hidden document, so a headless check of the whole loop would
+ * report a stall that no user would ever see. This is the part that carries the
+ * actual judgement, and it is verifiable without any of that.
+ *
+ * `drift` is slave minus master: positive means the slave is ahead.
+ */
+export function correctionFor(drift: number): { seek: boolean; rate: number } {
+  const mag = Math.abs(drift);
+  if (mag > RESEEK_SEC) return { seek: true, rate: 1 };
+  if (mag > MAX_DRIFT_SEC) return { seek: false, rate: drift > 0 ? 0.98 : 1.02 };
+  return { seek: false, rate: 1 };
+}
 
 export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, afterPoster }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -71,9 +92,24 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
   }, []);
 
   /*
-   * Keep the two elements on the same frame. `before` is the clock purely
-   * because it is the cheaper stream to decode, so it is the one more likely to
-   * stay honest under load.
+   * Keep the two elements on the same frame.
+   *
+   * WHY SEEKING ALONE DOES NOT WORK
+   * The previous version only acted when drift passed a threshold, and then
+   * corrected by assigning currentTime. A seek is not free: the element stalls
+   * while it lands, which produces more drift, which triggers another seek. It
+   * oscillates, and every correction is a visible jump — which reads as "the
+   * videos are not synced" even though on average they are.
+   *
+   * So there are two regimes. A LARGE gap (a loop wrap, a stall, one stream
+   * buffering) is a seek, because nothing else closes four seconds. A SMALL gap
+   * is closed by nudging playbackRate a fraction, which the viewer cannot see
+   * and which costs no seek at all. This is how video players keep audio and
+   * video tracks together, for the same reason.
+   *
+   * They also start together rather than whenever each finishes loading: both
+   * are held until `canplay` on both, then played in the same tick. Most of the
+   * visible offset was there from the first frame and never came from drift.
    */
   useEffect(() => {
     if (!visible) return;
@@ -82,16 +118,43 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
     if (!a || !b) return;
 
     let raf = 0;
+    let started = false;
+
+    const startBoth = () => {
+      if (started) return;
+      if (a.readyState < 3 || b.readyState < 3) return;
+      started = true;
+      a.currentTime = 0;
+      b.currentTime = 0;
+      void a.play().catch(() => {});
+      void b.play().catch(() => {});
+    };
+
     const tick = () => {
-      if (!a.paused && !b.paused && Number.isFinite(a.currentTime)) {
-        if (Math.abs(a.currentTime - b.currentTime) > MAX_DRIFT_SEC) {
-          b.currentTime = a.currentTime;
-        }
+      if (started && !a.paused && !b.paused && Number.isFinite(a.currentTime)) {
+        const drift = b.currentTime - a.currentTime;
+
+        const fix = correctionFor(drift);
+        // A wrap or a stall: nothing gradual closes four seconds.
+        if (fix.seek) b.currentTime = a.currentTime;
+        // Otherwise nudge the rate. 2% is far below the ~5% at which a viewer
+        // starts to notice motion running fast or slow.
+        if (b.playbackRate !== fix.rate) b.playbackRate = fix.rate;
       }
       raf = requestAnimationFrame(tick);
     };
+
+    a.addEventListener('canplay', startBoth);
+    b.addEventListener('canplay', startBoth);
+    startBoth();
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      a.removeEventListener('canplay', startBoth);
+      b.removeEventListener('canplay', startBoth);
+      b.playbackRate = 1;
+    };
   }, [visible]);
 
   const setFromClientX = useCallback((clientX: number) => {
@@ -136,12 +199,18 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
    * that only matters once someone is actually looking at it. Metadata is
    * enough to size the element; autoplay then streams what it needs.
    */
+  /*
+   * Deliberately NOT autoPlay. Each element would start the moment it had
+   * enough data, and the one that loaded first would be ahead by however long
+   * the other took — an offset present from the very first frame that no drift
+   * correction ever created and none of it could explain. The effect starts
+   * both together once both can play; see the sync effect above.
+   */
   const videoProps = {
     muted: true,
     loop: true,
     playsInline: true,
-    autoPlay: true,
-    preload: 'metadata' as const,
+    preload: 'auto' as const,
     className: 'absolute inset-0 h-full w-full object-cover',
   };
 
