@@ -25,10 +25,14 @@ export default async function AccountPage() {
   const user = await currentUser();
   if (!user) redirect('/sign-in?next=%2Faccount');
 
-  const access = await resolveAccess();
-
-  const rows = await db().select().from(schema.entitlements)
-    .where(eq(schema.entitlements.userId, user.id)).limit(1);
+  /* Independent of each other, so they go out together rather than one after
+   * the other -- this page is a round-trip to the database per await, and
+   * every sequential one is felt as the click taking longer. */
+  const [access, rows] = await Promise.all([
+    resolveAccess(),
+    db().select().from(schema.entitlements)
+      .where(eq(schema.entitlements.userId, user.id)).limit(1),
+  ]);
   const ent = rows[0];
 
   const plan = ent?.tier ? PLANS[ent.tier as PlanId] : null;

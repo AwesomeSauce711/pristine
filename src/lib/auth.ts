@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { cache } from 'react';
+
 import { cookies, headers } from 'next/headers';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
@@ -114,8 +116,16 @@ export async function createSession(userId: string): Promise<string> {
   return deviceId;
 }
 
-/** The signed-in user, or null. Never throws — an unreadable session is signed out. */
-export async function currentUser(): Promise<SessionUser | null> {
+/**
+ * The signed-in user, or null. Never throws — an unreadable session is signed out.
+ *
+ * Memoised per request with React's `cache`: the account page, resolveAccess
+ * and anything else on the same render all ask, and each ask was a session
+ * join against the database in series. Now the first answers for all of them.
+ * The memo lives only for the one server request, so revocation is exactly as
+ * immediate as it was.
+ */
+export const currentUser = cache(async function currentUser(): Promise<SessionUser | null> {
   let token: string | undefined;
   try {
     token = (await cookies()).get(COOKIE)?.value;
@@ -160,7 +170,7 @@ export async function currentUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
+});
 
 export async function signOut(): Promise<void> {
   const jar = await cookies();

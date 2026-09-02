@@ -83,9 +83,11 @@ const REVEAL_REARM_ABOVE = 58;
 /**
  * Where each half is read from, and where it lands.
  *
- * Exported so the geometry is testable. There is no timing left to test: both
- * rectangles are read from the SAME video element on the SAME draw, so they are
- * the same frame by construction rather than by correction.
+ * Exported so the geometry is testable. At runtime only `crushed` is drawn --
+ * the pristine half is the video element itself, shown by positioning (see the
+ * render) -- and the reveal is a CSS clip that follows the split. `pristine`
+ * and `clip` remain the statement of where that half lives in the frame and
+ * where the reveal must fall, which is what the tests pin.
  */
 export function splitDraw(videoW: number, videoH: number, canvasW: number, canvasH: number, posPct: number) {
   const half = videoW / 2;
@@ -100,9 +102,6 @@ export function splitDraw(videoW: number, videoH: number, canvasW: number, canva
     pristineVisible: clip < canvasW,
   };
 }
-
-/* Who wants to know the split moved, between video frames (see WHEN TO DRAW). */
-const splitListeners = new Set<() => void>();
 
 export default function CompareSlider({
   src, poster, onPositionChange, motionDrive = false,
@@ -159,7 +158,6 @@ export default function CompareSlider({
    * first reveal is the one that matters. */
   const revealArmed = useRef(true);
   const commitPos = useCallback((next: number) => {
-    for (const fn of splitListeners) fn();
     posRef.current = next;
     setPos(next);
     reportRef.current?.(next);
@@ -212,7 +210,7 @@ export default function CompareSlider({
     /* Device pixels, or a 2x screen throws away the difference being shown. */
     const size = () => {
       if (!v.videoWidth) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 2 : 3);
+      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 1.5 : 3);
       const w = Math.max(16, Math.round((wrap.clientWidth || 300) * dpr));
       c.width = w;
       c.height = Math.max(16, Math.round((w * v.videoHeight) / (v.videoWidth / 2)));
@@ -220,17 +218,8 @@ export default function CompareSlider({
 
     const draw = () => {
       if (v.readyState >= 2 && v.videoWidth && c.width > 0) {
-        const g = splitDraw(v.videoWidth, v.videoHeight, c.width, c.height, posRef.current);
-        const { crushed: k, pristine: pr } = g;
+        const k = splitDraw(v.videoWidth, v.videoHeight, c.width, c.height, posRef.current).crushed;
         ctx.drawImage(v, k.sx, k.sy, k.sw, k.sh, k.dx, k.dy, k.dw, k.dh);
-        if (g.pristineVisible) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(g.clip, 0, c.width - g.clip, c.height);
-          ctx.clip();
-          ctx.drawImage(v, pr.sx, pr.sy, pr.sw, pr.sh, pr.dx, pr.dy, pr.dw, pr.dh);
-          ctx.restore();
-        }
       }
     };
 
@@ -240,9 +229,8 @@ export default function CompareSlider({
      * times a second for this clip, not the 120 a ProMotion phone's animation
      * frame runs at, and not at all while the clip is paused or buffering. That
      * halves the work on the phones that could least afford it and lets the
-     * page go quiet whenever the picture is not changing. But the handle moves
-     * between video frames, so a drag also draws, on its own animation frame:
-     * the divider must follow the finger, not the clip.
+     * page go quiet whenever the picture is not changing. The handle is a CSS
+     * clip over the canvas, so a drag costs no draw at all.
      */
     let vfc = 0;
     const rvfc = v as HTMLVideoElement & {
@@ -252,12 +240,6 @@ export default function CompareSlider({
     const hasVfc = typeof rvfc.requestVideoFrameCallback === 'function';
     const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
     const tick = () => { draw(); raf = requestAnimationFrame(tick); };
-    let dragRaf = 0;
-    const onSplit = () => {
-      if (!hasVfc || dragRaf) return;
-      dragRaf = requestAnimationFrame(() => { dragRaf = 0; draw(); });
-    };
-
     /*
      * `play()` is rejected more often than the autoplay rules suggest — iOS Low
      * Power Mode, Data Saver, a backgrounded tab, some Android browsers until
@@ -284,17 +266,14 @@ export default function CompareSlider({
       draw();
       vfc = rvfc.requestVideoFrameCallback!(onFrame);
       v.addEventListener('loadedmetadata', draw);
-      splitListeners.add(onSplit);
     } else {
       raf = requestAnimationFrame(tick);
     }
 
     return () => {
       if (raf) cancelAnimationFrame(raf);
-      if (dragRaf) cancelAnimationFrame(dragRaf);
       if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
       v.removeEventListener('loadedmetadata', draw);
-      splitListeners.delete(onSplit);
       ro.disconnect();
       v.removeEventListener('loadedmetadata', size);
       v.removeEventListener('canplay', start);
@@ -435,33 +414,46 @@ export default function CompareSlider({
         }}
         className="relative aspect-[9/16] w-full overflow-hidden rounded-[38px]
                    bg-panel select-none touch-pan-y"
+        style={{ backgroundImage: `url(${poster})`, backgroundSize: 'cover' }}
       >
         {/*
-          * The source. Off-screen but not `display:none` and not zero-sized —
-          * a hidden element is allowed to be throttled or never decoded, and
-          * the canvas would then have nothing to draw. It carries no poster of
-          * its own: the still below is the composited one.
+          * THE VIDEO IS ON SCREEN, AS THE PRISTINE HALF.
+          *
+          * It used to be a hidden 1x1 element that the canvas read from. Mobile
+          * browsers pause muted video they judge invisible -- "background media
+          * paused to save power" -- and a one-pixel element is exactly that, so
+          * on a phone the source stopped and the canvas had nothing new to draw.
+          * On a laptop it never happened, which is why it looked fixed there.
+          *
+          * The frame is two 9:16 halves side by side. An element twice the
+          * width of the screen, shifted left by a screen, shows exactly the
+          * right half with no distortion, composited by the browser at no cost.
+          * The crushed half is the only thing drawn, on the canvas over it.
           */}
         {visible && (
-          <video
-            ref={videoRef}
-            src={src}
-            muted
-            loop
-            playsInline
-            preload="auto"
-            aria-hidden="true"
-            className="pointer-events-none absolute h-px w-px opacity-0"
-          />
+          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+            <video
+              ref={videoRef}
+              src={src}
+              muted
+              loop
+              playsInline
+              preload="auto"
+              className="pointer-events-none absolute top-0 h-full max-w-none"
+              style={{ width: '200%', left: '-100%' }}
+            />
+          </div>
         )}
 
-        {/* The picture: both halves, from one frame, every frame. */}
-        <canvas
-          ref={canvasRef}
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{ backgroundImage: `url(${poster})`, backgroundSize: 'cover' }}
-        />
+        {/* The crushed half, from the same presented frame, revealed by the
+            clip -- the reveal is CSS, so the canvas never redraws for a drag. */}
+        <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+          <canvas
+            ref={canvasRef}
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </div>
 
         {/* The divider: a hairline that goes out at either end, so a split
             pushed all the way shows one whole video with no line on it; and

@@ -1827,6 +1827,35 @@ body {
 .plate:has(> .drop-clear) .plate-edge {
   background: none;
 }
+/*
+ * The RING was the gradient that was still showing.
+ *
+ * `.plate-face::before` is not drawn as a ring. It is a full gradient
+ * rectangle 1.5px larger than the face on every side, sitting behind it at
+ * half opacity; the opaque face covered all but its edge, and the edge is what
+ * read as the iridescent hairline. Clear the face and the whole gradient is
+ * visible through it. So on this plate the pseudo-element is masked down to
+ * the 1.5px it was always meant to be: the padding is the ring width and the
+ * two masks cancel everywhere but the padding. A mask makes a grouping
+ * context, which the LAYERING note forbids under a perspective -- but this is
+ * a leaf pseudo-element with nothing 3D inside it, so there is nothing to
+ * flatten.
+ */
+.drop-clear.plate-face::before {
+  padding: 1.5px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+/* The hover glare is a white smudge over a transparent plate. */
+.drop-clear .plate-glare {
+  display: none;
+}
 
 /*
  * Now that the scene shows through, the content needs its own contrast.

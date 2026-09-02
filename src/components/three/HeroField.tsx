@@ -1413,7 +1413,10 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
       raf = 0;
       if (!running()) return;
       raf = requestAnimationFrame(frame);
-      if (last && now - last < 1000 / MAX_FPS - 2) return;
+      /* Half rate on a lite device: sprites this soft drifting at 30 read
+       * the same as at 60, for half the GPU time. Part of the low-graphics
+       * tier with the 1x pixel ratio and the halved intensity below. */
+      if (last && now - last < 1000 / (sceneIsLite() ? 30 : MAX_FPS) - 2) return;
       /* Capped so a stall slows the rain for a frame instead of jumping it. */
       const dt = last ? Math.min((now - last) / 1000, 0.05) : 0;
       last = now;
@@ -1546,7 +1549,7 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
       material.uniforms.uMap.value = tex;
       /* The calm level, applied now and whenever the prop changes. */
       applyCalmRef.current = () => {
-        const c = Math.min(1, Math.max(0, calmRef.current));
+        const c = Math.min(1, Math.max(0, calmRef.current)) * (sceneIsLite() ? 0.5 : 1);
         /* A phone's screen is a third the width and no less busy at full
          * strength, so a narrow canvas turns itself down a step further. */
         const w = root.clientWidth;
