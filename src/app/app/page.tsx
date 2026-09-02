@@ -503,7 +503,7 @@ export default function AppPage() {
                         <p className="mt-5 hidden text-[15px] font-medium pointer-fine:block">
                           Drop your video here
                         </p>
-                        <p className="mt-1.5 text-[13px] text-dim">
+                        <p className="mt-1.5 text-[13px] text-muted">
                           <span className="pointer-fine:hidden">Straight from your camera roll · </span>
                           MP4 or MOV · up to 4K · up to 60 fps · any length
                         </p>
@@ -537,7 +537,7 @@ export default function AppPage() {
                         </span>
                       ))}
                     </div>
-                    <p className="text-center text-[12.5px] leading-relaxed text-dim">
+                    <p className="text-center text-[12.5px] leading-relaxed text-muted">
                       What you send is what stays. Shot smaller? Upscale with Topaz Video AI first,
                       then export and bring that file here.
                     </p>
