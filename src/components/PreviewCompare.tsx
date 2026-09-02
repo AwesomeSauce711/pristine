@@ -1,6 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import EngagementRail from '@/components/EngagementRail';
+import { play } from '@/lib/sound';
+import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
+import type { Engagement } from '@/lib/engagement';
 
 /*
  * One phone, one video, a slider down the middle.
@@ -30,7 +34,35 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * 1/30s interval, so motion is genuinely sampled at the lower rate.
  *
  * ENGAGEMENT NUMBERS ARE ILLUSTRATIVE and labelled as such under the frame.
- * Deliberately generic chrome — no TikTok logo, wordmark or copied iconography.
+ * They sit in a feed-style rail down the right edge (EngagementRail) and climb
+ * as the handle moves toward the clean side. Deliberately generic chrome — no
+ * TikTok logo, wordmark or copied iconography.
+ *
+ * THE FRAME IS NOT HERE
+ * The app page mounts this inside the site's Stage, which puts it in the same
+ * phone the landing page uses (Phone3D: bezel, ring, notch, thickness, the
+ * hand behind it, the tilt), so this component is the screen and nothing
+ * else. `wrapRef` is the screen itself, so the canvas sizing and the drag maths
+ * measure the picture and not the frame. The note that used to sit under the
+ * bezel is exported separately as `PreviewNote` for the page to place beneath
+ * the stage: rendered here it would land inside the phone.
+ *
+ * WHAT THE STAGE ASKS OF IT
+ * `onPositionChange` reports the split so the stage can light the phone and
+ * the hand by it; `motionDrive` lets the reader's motion — the pointer's place
+ * across the page, or the phone's roll — move the split while nobody is
+ * dragging. Both are optional and the slider is unchanged without them.
+ *
+ * NO FILTER ON THE SCREEN
+ * The crushed side used to carry a CSS filter (a little desaturation and
+ * contrast loss, the look of a re-encode) and the handle a backdrop blur.
+ * Inside the stage's 3D context neither can be composited on its own: the
+ * browser re-rasterises the whole context — video included — every frame
+ * (Holograms.tsx records the two-frames-a-second version of this). The same
+ * look is now applied by the 2D context as it draws, on a canvas a few hundred
+ * pixels wide, at most `targetFps` times a second; where a browser has no
+ * `ctx.filter` the downscale alone carries the comparison, which is the honest
+ * part anyway. The handle is plain glass.
  */
 
 interface Props {
@@ -45,12 +77,18 @@ interface Props {
   sound?: string;
   targetShortEdge?: number;
   targetFps?: number;
-}
-
-function compact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return n.toLocaleString('en-US');
+  /** Called whenever the split moves, with the divider's position in percent. */
+  onPositionChange?: (pos: number) => void;
+  /**
+   * Let the reader's motion move the split while nobody is dragging: `pos`
+   * eases toward splitFor(motion.x) on every reading from stage-motion — the
+   * pointer's place across the page on a desktop, the phone's roll on a
+   * handset. A drag wins while it lasts; a keyboard step lands and holds until
+   * the next reading; touch never drives it.
+   */
+  motionDrive?: boolean;
+  /** The figures at the clean end of the rail; the page draws a fresh set per file. */
+  pristine?: Engagement;
 }
 
 /*
@@ -60,18 +98,36 @@ function compact(n: number): string {
  */
 const PHONE_SCREEN_PX = 1080;
 
-const Heart = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" className={className}>
-    <path d="M12 20.8 3.9 12.9a4.8 4.8 0 0 1 6.8-6.8l1.3 1.3 1.3-1.3a4.8 4.8 0 0 1 6.8 6.8Z" fill="currentColor" />
-  </svg>
-);
+/*
+ * The look of a re-encode on the crushed side — a little less colour, a little
+ * less contrast — applied by the 2D context as it draws, never by CSS on the
+ * canvas (see NO FILTER ON THE SCREEN above).
+ */
+const CRUSH_LOOK = 'saturate(0.8) contrast(0.93) brightness(0.94)';
 
+/* Motion drive: the fraction of the remaining distance closed per 60 Hz frame. */
+const FOLLOW = 0.12;
+
+/* The chime rings as the split crosses the middle toward Pristine... */
+const REVEAL_AT = 50;
+/* ...and re-arms only once it has come clearly back, so a pointer resting on
+ * the line does not ring it every frame. Mirrors EngagementRail's pop. */
+const REARM_ABOVE = 56;
+
+/* The keys a range input steps on; each step is a tick. */
+const STEP_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+
+/*
+ * `crushedLikes` and `pristineLikes` remain part of Props — the app page passes
+ * them — but every count on the rail comes from src/lib/engagement.ts, so they
+ * are accepted and not read.
+ */
 export default function PreviewCompare({
   src, width, height, fps, bitrateMbps,
-  crushedLikes, pristineLikes,
   handle = '@yourhandle',
   sound = 'original sound — your edit',
   targetShortEdge = 720, targetFps = 30,
+  onPositionChange, motionDrive = false, pristine,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +142,9 @@ export default function PreviewCompare({
     if (!v || !c || !wrap) return;
     const ctx = c.getContext('2d', { alpha: false });
     if (!ctx) return;
+    // Resizing the canvas resets the context's state, filter included, so the
+    // look is set per draw rather than once here.
+    const canFilter = 'filter' in ctx;
 
     let raf = 0;
     let lastDrawn = -1;
@@ -133,6 +192,7 @@ export default function PreviewCompare({
           || v.currentTime < lastDrawn;
         if (due && c.width > 0) {
           lastDrawn = v.currentTime;
+          if (canFilter) ctx.filter = CRUSH_LOOK;
           ctx.drawImage(v, 0, 0, c.width, c.height);
         }
       }
@@ -152,12 +212,43 @@ export default function PreviewCompare({
     };
   }, [src, targetShortEdge, targetFps]);
 
+  /*
+   * Every change to the split goes through here, and the parent hears about
+   * it in the same tick — not from an effect on `pos`, which scheduled a
+   * second render from inside React's passive-effect flush on every frame of
+   * a drag or a motion-drive (the pattern behind React's "maximum update
+   * depth" warning). One batched render per frame instead.
+   */
+  const posRef = useRef(pos);
+  const reportRef = useRef(onPositionChange);
+  useEffect(() => { reportRef.current = onPositionChange; }, [onPositionChange]);
+  /*
+   * The chime, on the crossing toward Pristine, played in the same tick as
+   * the crossing rather than from an effect after the paint. Armed while the
+   * split is at or past the line on the crushed side, so mounting past it
+   * does not ring and the first crossing does; it re-arms only once the split
+   * has come clearly back. The rail's pop lands on the same crossing.
+   */
+  const revealArmed = useRef(pos >= REVEAL_AT);
+  const commitPos = useCallback((next: number) => {
+    posRef.current = next;
+    setPos(next);
+    reportRef.current?.(next);
+    if (next >= REARM_ABOVE) revealArmed.current = true;
+    if (revealArmed.current && next < REVEAL_AT) {
+      revealArmed.current = false;
+      play('reveal');
+    }
+  }, []);
+  /* The starting split, once, so a parent that renders from it is not stale. */
+  useEffect(() => { reportRef.current?.(posRef.current); }, []);
+
   const setFromClientX = useCallback((clientX: number) => {
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos(Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100)));
-  }, []);
+    commitPos(Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100)));
+  }, [commitPos]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -173,101 +264,169 @@ export default function PreviewCompare({
     };
   }, [dragging, setFromClientX]);
 
+  /*
+   * Follow the reader's motion.
+   *
+   * Eased rather than snapped — about 12% of the remaining distance per 60 Hz
+   * frame, scaled to the real frame time so a 120 Hz display is not twice as
+   * stiff — so a hand crossing the page moves the divider like a slow wipe
+   * instead of a flicker. A drag wins while it is happening: the effect is
+   * re-run with `dragging`, and a drag in progress is not subscribed at all.
+   * Touch never drives it (the store ignores fingers); on a phone the readings
+   * are the gyroscope's. `posRef` tracks the split between React commits so
+   * consecutive frames do not read a stale value.
+   */
+  useEffect(() => {
+    if (!motionDrive || dragging) return;
+    let raf = 0;
+    let last = 0;
+    let target: number | null = null;
+
+    const step = (now: number) => {
+      raf = 0;
+      if (target === null) return;
+      const dt = last ? Math.min(48, now - last) : 16.7;
+      last = now;
+      const p = posRef.current;
+      const k = 1 - Math.pow(1 - FOLLOW, dt / 16.7);
+      const next = Math.abs(target - p) < 0.06 ? target : p + (target - p) * k;
+      commitPos(next);
+      if (next !== target) raf = requestAnimationFrame(step);
+      else last = 0;
+    };
+    /* A pointer puts the divider where the pointer is, measured across the
+     * screen itself — one edge of the phone to the other, as a drag would —
+     * and holds at that end past either edge. A gyroscope is the roll. */
+    const targetFor = (m: Motion) => {
+      const el = wrapRef.current;
+      if (m.source === 'pointer' && el) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) {
+          const clientX = ((m.x + 1) / 2) * window.innerWidth;
+          return Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100));
+        }
+      }
+      return splitFor(m.x);
+    };
+    const unsubscribe = subscribeMotion((m) => {
+      // The store's first call is whatever it last saw; before anyone has
+      // moved, that is nothing, and nothing should not move the split.
+      if (m.source === 'none') return;
+      target = targetFor(m);
+      if (!raf && !document.hidden) raf = requestAnimationFrame(step);
+    });
+
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(raf);
+    };
+  }, [motionDrive, dragging, commitPos]);
+
   const crushedSpec = `${Math.round(targetShortEdge)}×${Math.round(targetShortEdge * (height / width))} · ${targetFps}fps · 2.9 Mbps`;
   const pristineSpec = `${width}×${height} · ${fps.toFixed(0)}fps · ${bitrateMbps.toFixed(1)} Mbps`;
 
+  // How far the handle sits toward the clean side: 0 is all crushed, 1 is all
+  // clean. Drives the rail; the stage reads the same figure via onPositionChange.
+  const t = 1 - pos / 100;
+
   return (
-    <div className="mx-auto w-full max-w-[320px]">
-      <div
-        ref={wrapRef}
-        onPointerDown={(e) => { setDragging(true); setFromClientX(e.clientX); }}
-        className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
-                   rounded-[32px] border border-line bg-black shadow-2xl"
-      >
-        {/* Clean side — the video itself. One element, one clock. */}
-        <video
-          ref={videoRef}
-          src={src}
-          muted loop playsInline autoPlay
+    <div
+      ref={wrapRef}
+      onPointerDown={(e) => { setDragging(true); setFromClientX(e.clientX); }}
+      className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
+                 rounded-[38px] bg-black"
+    >
+      {/* Clean side — the video itself. One element, one clock. */}
+      <video
+        ref={videoRef}
+        src={src}
+        muted loop playsInline autoPlay
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+
+      {/* Crushed side, clipped to the left of the handle. Its look is drawn in
+          (CRUSH_LOOK), so the element itself carries no filter. */}
+      <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+        <canvas
+          ref={canvasRef}
           className="absolute inset-0 h-full w-full object-cover"
-        />
-
-        {/* Crushed side, clipped to the left of the handle. */}
-        <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 h-full w-full object-cover"
-            style={{ imageRendering: 'auto', filter: 'saturate(.8) contrast(.93) brightness(.94)' }}
-          />
-        </div>
-
-        {/* Legibility wash, top and bottom, over both halves. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
-
-        {/* ---- headers: always both visible, so the comparison reads at a glance ---- */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 p-3">
-          <div className="max-w-[46%]">
-            <div className="legend text-[8.5px] leading-tight text-white/55">Without Pristine</div>
-            <div className="tabular mt-1 text-[9.5px] leading-tight text-white/75">{crushedSpec}</div>
-          </div>
-          <div className="max-w-[52%] text-right">
-            <div className="legend text-[8.5px] leading-tight text-accent-soft">With Pristine</div>
-            <div className="tabular mt-1 text-[9.5px] font-medium leading-tight text-white">{pristineSpec}</div>
-          </div>
-        </div>
-
-        {/* ---- like counters: one per side, red on the good one ---- */}
-        <div className="pointer-events-none absolute bottom-32 left-3 flex flex-col items-center gap-1 text-white/45">
-          <Heart />
-          <span className="tabular text-[11px] leading-none">{compact(crushedLikes)}</span>
-        </div>
-        <div className="pointer-events-none absolute right-3 bottom-32 flex flex-col items-center gap-1">
-          <Heart className="text-[#fe2c55] drop-shadow-[0_0_10px_rgba(254,44,85,0.55)]" />
-          <span className="tabular text-[12px] font-semibold leading-none text-white">
-            {compact(pristineLikes)}
-          </span>
-        </div>
-
-        {/* ---- caption: the same post either way, so it spans both halves ---- */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3.5">
-          <div className="text-[12px] font-semibold text-white">{handle}</div>
-          <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-white/80">
-            <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" className="shrink-0">
-              <path d="M9 18V6l10-2v12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
-              <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
-              <circle cx="16.5" cy="16" r="2.5" fill="currentColor" />
-            </svg>
-            <span className="truncate">{sound}</span>
-          </div>
-        </div>
-
-        {/* ---- handle ---- */}
-        <div className="pointer-events-none absolute inset-y-0" style={{ left: `${pos}%` }}>
-          <div className="absolute inset-y-0 -left-px w-0.5 bg-white/90" />
-          <div className="absolute top-1/2 -left-[18px] grid h-9 w-9 -translate-y-1/2 place-items-center
-                          rounded-full bg-white text-black shadow-lg">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M9.5 7.5 5 12l4.5 4.5M14.5 7.5 19 12l-4.5 4.5" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          </div>
-        </div>
-
-        <input
-          type="range" min={0} max={100} value={Math.round(pos)}
-          onChange={(e) => setPos(Number(e.target.value))}
-          aria-label="Compare an ordinary upload with Pristine"
-          className="absolute inset-x-0 bottom-0 h-10 w-full cursor-ew-resize opacity-0"
+          style={{ imageRendering: 'auto' }}
         />
       </div>
 
-      <p className="mt-4 text-center text-[11.5px] leading-relaxed text-dim">
-        Drag to compare. This shows the resolution and frame rate you lose; the drop from{' '}
-        <span className="tabular text-muted">{bitrateMbps.toFixed(1)}</span> to{' '}
-        <span className="tabular text-muted">2.9 Mbps</span> of compression is not simulated,
-        and on real footage it is the larger difference. Like counts are illustrative.
-      </p>
+      {/* Legibility wash, top and bottom, over both halves. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
+
+      {/* ---- headers: always both visible, so the comparison reads at a glance ---- */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 px-3 pt-8 pb-3">
+        <div className="max-w-[46%]">
+          <div className="legend text-[8.5px] leading-tight text-white/55">Without Pristine</div>
+          <div className="tabular mt-1 text-[9.5px] leading-tight text-white/75">{crushedSpec}</div>
+        </div>
+        <div className="max-w-[52%] text-right">
+          <div className="legend text-[8.5px] leading-tight text-accent-soft">With Pristine</div>
+          <div className="tabular mt-1 text-[9.5px] font-medium leading-tight text-white">{pristineSpec}</div>
+        </div>
+      </div>
+
+      {/* ---- engagement rail: a feed's right rail, lit by how much clean side shows ---- */}
+      <EngagementRail t={t} pristine={pristine} className="absolute right-2.5 bottom-[88px]" />
+
+      {/* ---- caption: the same post either way, so it spans both halves ---- */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3.5">
+        <div className="text-[12px] font-semibold text-white">{handle}</div>
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-white/80">
+          <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" className="shrink-0">
+            <path d="M9 18V6l10-2v12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+            <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
+            <circle cx="16.5" cy="16" r="2.5" fill="currentColor" />
+          </svg>
+          <span className="truncate">{sound}</span>
+        </div>
+      </div>
+
+      {/* ---- handle: a hairline that goes out at either end (one whole video,
+              no line on it), and a glass disc that stays on the screen at both
+              ends so it can always be dragged back ---- */}
+      <div
+        className="pointer-events-none absolute inset-y-0 -ml-px w-px bg-white/85 shadow-[0_0_12px_rgba(255,255,255,0.5)] transition-opacity duration-150"
+        style={{ left: `${pos}%`, opacity: pos < 0.75 || pos > 99.25 ? 0 : 1 }}
+      />
+      <div className="pointer-events-none absolute inset-y-0" style={{ left: `clamp(22px, ${pos}%, calc(100% - 22px))` }}>
+        <div className="absolute top-1/2 -left-[22px] grid h-11 w-11 -translate-y-1/2 place-items-center
+                        rounded-full border border-white/30 bg-white/15 text-white
+                        shadow-[0_10px_30px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.3)]">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M9.5 7.5 5 12l4.5 4.5M14.5 7.5 19 12l-4.5 4.5" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        </div>
+      </div>
+
+      <input
+        type="range" min={0} max={100} value={Math.round(pos)}
+        onChange={(e) => commitPos(Number(e.target.value))}
+        onKeyDown={(e) => { if (STEP_KEYS.has(e.key)) play('tick'); }}
+        aria-label="Compare an ordinary upload with Pristine"
+        className="absolute inset-x-0 bottom-0 h-10 w-full cursor-ew-resize opacity-0"
+      />
     </div>
+  );
+}
+
+/**
+ * The note under the phone: what the preview shows and what it does not.
+ * Rendered by the page beneath the stage, not by the screen above, so it
+ * never lands inside the frame.
+ */
+export function PreviewNote({ bitrateMbps }: { bitrateMbps: number }) {
+  return (
+    <p className="mx-auto mt-6 max-w-xl text-center text-[11.5px] leading-relaxed text-dim">
+      Drag to compare. This shows the resolution and frame rate you lose; the drop from{' '}
+      <span className="tabular text-muted">{bitrateMbps.toFixed(1)}</span> to{' '}
+      <span className="tabular text-muted">2.9 Mbps</span> of compression is not simulated,
+      and on real footage it is the larger difference. Like counts are illustrative.
+    </p>
   );
 }

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored, minified third-party code served as-is: the Draco mesh
+    // decoder that unpacks the hand model (copied from three/examples).
+    "public/draco/**",
   ]),
 ]);
 

@@ -1,38 +1,77 @@
 @import "tailwindcss";
 
 /*
+ * `pointer-fine:` — a mouse or trackpad, as opposed to a finger.
+ *
+ * Used where the WORDS have to change rather than the layout: a phone reader
+ * cannot drag a file onto a drop zone, so telling them to is describing an
+ * action they do not have. A width breakpoint is the wrong test for this — a
+ * tablet is wide and still has no drag gesture — so this asks about the input
+ * device instead.
+ */
+@custom-variant pointer-fine (@media (pointer: fine));
+
+/*
  * Pristine — visual system.
  *
  * DIRECTION
  * Two registers, deliberately different.
  *
- * The marketing pages are cinematic: a near-black ground, one accent, large
- * type, and a lot of air. The product being sold is picture quality, so the
- * page has to look like it was made by someone who cares about picture quality.
+ * The marketing pages are a scene, not a layout. Deep space — a near-black
+ * ground with a blue-violet nebula and a starfield drawn on a canvas BEHIND
+ * the content — in which everything the reader meets floats in one 3D space:
+ * a real hand (a Draco-compressed model lit by the screen it holds) holds a
+ * phone with actual thickness; the engagement figures stand above it as
+ * holograms and the two measured-figure badges hang over its top corners as
+ * plates of glass; the numbers, the steps, the proof, the plans and the FAQ
+ * are glass slabs with edges and shadows that lean with the pointer; the
+ * logo, the links and the buttons hang in the scenery where a header bar
+ * used to be; and the hero's background is likes, comments and follows
+ * raining upward with their numbers rising. The type is Bricolage Grotesque,
+ * heavy and mixed-case, with the section titles carrying a soft iridescent
+ * shadow; glass panels take a single accent register — an iridescent sheen
+ * (pink → violet → blue → cyan → white) used the way light reads on
+ * holographic chrome. The product being sold is picture quality, so the page
+ * has to look like it was made by someone who cares about picture quality —
+ * and every effect here has to earn its frame budget, because a scene that
+ * stutters over its own hero video sells nothing.
  *
- * The tool itself is an instrument: every measured number in monospace with
- * tabular figures, small-caps legends, and colour reserved for state. When the
- * app says "2160x3840 - 59.94 fps - H.264 High @ L5.2" that is read out of the
- * user's actual file, and it should look like a readout, not marketing copy.
+ * The tool itself is an instrument set in the same scene: the same hand, the
+ * same phone, the same buttons, but every measured number in monospace with
+ * tabular figures, small-caps legends, and colour reserved for state. When
+ * the app says "2160x3840 - 59.94 fps - H.264 High @ L5.2" that is read out
+ * of the user's actual file, and it should look like a readout, not
+ * marketing copy.
  *
- * THE ONE COLOUR RULE
- * Violet is the brand and is used for emphasis and action. Green and amber mean
- * something is true or needs attention. Nothing else is coloured. A glance at
- * colour should always be a glance at meaning.
+ * COLOUR
+ * Colour for meaning, iridescence for brand, violet for action. Green, amber
+ * and red mean something is true, needs attention, or failed. The iridescent
+ * spectrum marks what is ours — the wordmark, the emphasised numbers, gradient
+ * rings and glows — and never carries state (the sound toggle, which is
+ * state, lights white and dims grey). Violet is the one flat colour, kept for
+ * the control that does something. A glance at colour should still be a
+ * glance at meaning; the sheen is the exception, and it is only ever
+ * decoration.
  *
  * WHY NOT CYAN AND PINK
  * The earlier local tool used #25f4ee and #fe2c55 — TikTok's own brand colours.
  * On a site that also renders a TikTok-shaped preview, that combination reads as
  * affiliation, which is a trade-dress problem and not a look we want anyway.
+ * The iridescent spectrum passes through a pink and a cyan, but deliberately as
+ * two stops of a full spectrum that runs through violet, blue and white — never
+ * as that pair on its own. The one place the red appears is on a heart, where
+ * it is the universal "liked" red and reads as the gesture, not the brand;
+ * it lives inside the full spectrum there, a minority of hearts among pink,
+ * violet, blue and cyan ones.
  */
 
 @theme {
-  --color-bg: #08080b;
-  --color-bg-soft: #0d0d12;
-  --color-panel: #131318;
-  --color-panel-2: #191920;
-  --color-line: #23232e;
-  --color-line-soft: #1b1b24;
+  --color-bg: #05060c;
+  --color-bg-soft: #0a0c16;
+  --color-panel: #10121c;
+  --color-panel-2: #161927;
+  --color-line: #232637;
+  --color-line-soft: #1a1d2b;
 
   --color-text: #f2f3f7;
   --color-muted: #8e93a6;
@@ -45,19 +84,127 @@
   --color-warn: #ffb020;
   --color-bad: #ff5c5c;
 
+  /* The iridescent spectrum, in the order light walks through it. */
+  --color-iri-pink: #ff6ad5;
+  --color-iri-violet: #b06bff;
+  --color-iri-blue: #5b8cff;
+  --color-iri-cyan: #4ef0ff;
+  --color-iri-amber: #ffb36b;
+
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, "Cascadia Code", Consolas, monospace;
+  /* Inter Tight for the giant wordmark: the same letterforms as the body
+   * face, drawn tighter, so a word set at 16rem does not fall apart. */
+  --font-display: var(--font-inter-tight), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /* Bricolage Grotesque for the hero headline and the section titles: a face
+   * with its own character at display sizes, where Inter Tight reads as a
+   * larger body face. Falls back to the tight face, so a headline that
+   * renders before the font arrives is still a tight headline. */
+  --font-hero: var(--font-bricolage), var(--font-inter-tight), ui-sans-serif, sans-serif;
 
   --radius-panel: 16px;
 }
 
+/*
+ * The spectrum as gradients, so every iridescent surface is the same light.
+ *
+ * `--iri-sweep` is built to tile: it starts and ends on the same pink and puts
+ * the white glint in the middle. Everything that animates it uses a 300%-wide
+ * background and moves it by exactly one tile (see `.brand` below), which is
+ * what makes the loop invisible.
+ */
+:root {
+  --iri-sweep: linear-gradient(
+    100deg,
+    var(--color-iri-pink) 0%,
+    var(--color-iri-violet) 13%,
+    var(--color-iri-blue) 26%,
+    var(--color-iri-cyan) 37%,
+    #ffffff 44%,
+    #ffffff 46%,
+    var(--color-iri-cyan) 53%,
+    var(--color-iri-blue) 65%,
+    var(--color-iri-violet) 80%,
+    var(--color-iri-pink) 100%
+  );
+  --iri-diag: linear-gradient(
+    135deg,
+    var(--color-iri-pink),
+    var(--color-iri-violet) 32%,
+    var(--color-iri-blue) 64%,
+    var(--color-iri-cyan)
+  );
+  --iri-rule: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-iri-pink) 18%,
+    var(--color-iri-violet) 40%,
+    var(--color-iri-blue) 62%,
+    var(--color-iri-cyan) 84%,
+    transparent
+  );
+  /* The phone's ring: the spectrum closed into a loop with a white glint, so
+   * it reads the same from whichever corner the bezel is seen. */
+  --iri-ring: linear-gradient(
+    135deg,
+    var(--color-iri-pink) 0%,
+    var(--color-iri-violet) 24%,
+    var(--color-iri-blue) 50%,
+    var(--color-iri-cyan) 72%,
+    #ffffff 88%,
+    var(--color-iri-pink) 100%
+  );
+}
+
+/*
+ * Registered custom properties, so the brand gradient can be animated and
+ * transitioned as numbers rather than as whole background images.
+ *
+ * Where a browser does not support @property these still resolve — an
+ * unregistered property just cannot interpolate, so the hue sits still and the
+ * hover glint never leaves its off-screen resting position. Nothing breaks; it
+ * is simply not animated.
+ */
+@property --brand-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@property --brand-boost {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@property --shine-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: -200%;
+}
+@property --shine-a {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+/*
+ * The ground is painted on <html>, and <body> is transparent — deliberately.
+ * The starfield and the hero's canvases sit at a negative z-index inside the
+ * root stacking context, and the painting order puts negative-z children
+ * ABOVE the root's background but BELOW an in-flow block's own background. A
+ * body with a background of its own therefore paints over every canvas, which
+ * is exactly what happened: a flat #05060c where the galaxy should have been.
+ * The faint violet wash at the top gives pages without a starfield (account,
+ * legal) some depth; on the landing page and in the tool the canvas covers it.
+ */
 html {
   scroll-behavior: smooth;
-  background: var(--color-bg);
+  background:
+    radial-gradient(70% 45% at 50% -12%, rgba(59, 29, 122, 0.32), transparent 62%) no-repeat,
+    var(--color-bg);
 }
 
 body {
-  background: var(--color-bg);
+  background: transparent;
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -81,20 +228,6 @@ body {
   color: var(--color-dim);
 }
 
-/* The one decorative flourish: a slow violet wash behind the hero. Kept as a
- * single element so it can be removed in one place if it ever feels cheap. */
-.aurora {
-  position: absolute;
-  inset: -20% -10% auto -10%;
-  height: 70vh;
-  background:
-    radial-gradient(58% 44% at 22% 8%, rgba(124, 92, 255, 0.20), transparent 65%),
-    radial-gradient(46% 40% at 82% 0%, rgba(74, 58, 153, 0.22), transparent 62%);
-  filter: blur(28px);
-  pointer-events: none;
-  z-index: 0;
-}
-
 /*
  * NO GRAIN OVERLAY. Removed twice over, and worth recording why so it does not
  * get added back a third time.
@@ -112,6 +245,35 @@ body {
  * page that stutters over its own hero video. If it ever needs solving, do it
  * with a subtle gradient in the background paint rather than an overlay above
  * the content.
+ */
+
+/*
+ * LAYERING, for the same reason. Everything that draws every frame is a
+ * canvas mounted BEHIND the content — the starfield fixed at z-index 0, the
+ * hero's engagement field and its thin chrome ribbons absolute in the hero at
+ * z-index 0, all with pointer-events off — and the page content sits above
+ * them at z-index 1. Nothing full-screen is ever composited over the videos.
+ *
+ * The three.js canvases follow the same rule. The hero field is behind the
+ * hero's copy. The hand is two canvases the size of the phone's neighbourhood
+ * (2.2× its width by 1.5× its height), not the screen: the back one sits
+ * under the DOM phone and the front one over it, so the fingers can cross the
+ * bezel. That front canvas is the one thing layered over the videos, and it
+ * is tolerable only because it is small, transparent, repaints only when the
+ * tilt or the idle breathing moves, and carries no CSS filter. Every renderer
+ * here stops off screen, stops when the tab is hidden, and caps at 1.5× DPR.
+ *
+ * Inside a 3D rendering context the rule is stricter still: no `filter`,
+ * `mask` or `backdrop-filter` on anything under a `perspective`. A grouping
+ * effect there cannot be composited on its own, so the browser re-rasterises
+ * the whole context — videos included — every frame; that is what made the
+ * first stage run at two frames a second. It is why every ring in the scene
+ * layer (plates, descriptors, the dock, the bezel) is an oversized gradient
+ * behind an opaque body rather than a masked pseudo-element, why the plates
+ * are opaque glass rather than blurred glass, and why the blur is stripped
+ * from any round-one glass that lands inside a plate. The only things that
+ * animate every frame in the DOM do so with transform and opacity, or are
+ * small enough (a wordmark, one headline word) that repainting them is cheap.
  */
 
 @keyframes rise {
@@ -152,9 +314,18 @@ body {
   border-radius: 6px;
 }
 
+/* The ring above rounds whatever it lands on to 6px so it reads on square
+ * elements. A pill is not square, and neither is a round icon button: keep
+ * their shapes while they are focused. */
+.pill:focus-visible,
+.icon-btn:focus-visible,
+.sound-toggle:focus-visible {
+  border-radius: 9999px;
+}
+
 /*
- * Keyboard users need a way past the nav. Visually hidden until focused, which
- * is the one time it is useful.
+ * Keyboard users need a way past the scene nav's links. Visually hidden until
+ * focused, which is the one time it is useful.
  */
 .skip-link {
   position: absolute;
@@ -173,36 +344,1499 @@ body {
 }
 
 /*
- * The annual plan's number.
+ * The class contract.
  *
- * The tiers differ by one thing — how many videos a day — so that number is
- * what the eye should land on, and it should get more emphatic as the plan
- * does. Weekly is plain, monthly takes the accent, and annual animates.
- *
- * background-clip: text over a moving gradient, rather than an animated colour,
- * so the hue sweeps ACROSS the glyphs instead of the whole number pulsing. The
- * gradient is 300% wide and slides by two thirds, which puts the loop point in
- * the middle of the sweep where it cannot be seen.
+ * Everything below is in the `components` layer on purpose. Tailwind's
+ * utilities live in a later layer, so `p-7`, `opacity-25` or `rounded-[46px]`
+ * on the same element still win over what a class here sets — the classes
+ * describe a material, the utilities place it. (The older `.legend` and
+ * `.tabular` above are unlayered, as they always were.)
  */
-@keyframes pristine-rainbow {
-  0%   { background-position:   0% 50%; }
-  100% { background-position: 200% 50%; }
+@layer components {
+  /*
+   * Iridescent text.
+   *
+   * background-clip: text over two background layers. The lower one is the
+   * spectrum, 300% wide, slid by exactly one tile every 8 seconds so the loop
+   * point can never be seen (a 300%-wide image tiles every 150% of
+   * background-position). The upper one is a narrow white glint, parked off
+   * the left edge until the element is hovered, when it crosses once.
+   *
+   * Hover also adds a whole extra tile of travel over 1.4s — the sweep speeds
+   * up rather than restarting — and on leaving it eases back the same way,
+   * which reads like tilting a hologram towards the light and back again. Both
+   * are transitions on registered properties, so nothing ever jumps.
+   *
+   * `.rainbow-number` (the annual plan's video count) is the same treatment
+   * under its older name. The plans differ by one thing, and it should get
+   * more emphatic as the plan does: weekly is plain, monthly takes the accent,
+   * annual takes the brand.
+   */
+  .brand,
+  .brand-static,
+  .rainbow-number {
+    background-image:
+      linear-gradient(
+        100deg,
+        transparent 22%,
+        rgba(255, 255, 255, calc(var(--shine-a) * 0.9)) 50%,
+        transparent 78%
+      ),
+      var(--iri-sweep);
+    background-size: 50% 100%, 300% 100%;
+    background-repeat: no-repeat, repeat;
+    background-position:
+      var(--shine-x) 50%,
+      calc(var(--brand-x) + var(--brand-boost)) 50%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: var(--color-iri-violet);
+    -webkit-text-fill-color: transparent;
+  }
+  .brand,
+  .rainbow-number {
+    animation: brand-sweep 8s linear infinite;
+    transition:
+      --brand-boost 1.6s cubic-bezier(0.3, 0, 0.2, 1),
+      --shine-x 0s linear 0.35s,
+      --shine-a 0.35s ease;
+  }
+  /* The still version, and what `.brand` becomes under reduced motion. */
+  .brand-static {
+    --brand-x: -40%;
+  }
+  @media (hover: hover) {
+    .brand:hover,
+    .rainbow-number:hover,
+    a:hover .brand {
+      --brand-boost: -150%;
+      --shine-x: 400%;
+      --shine-a: 1;
+      transition:
+        --brand-boost 1.4s cubic-bezier(0.3, 0, 0.2, 1),
+        --shine-x 1.1s cubic-bezier(0.2, 0.6, 0.2, 1),
+        --shine-a 0.2s ease;
+    }
+  }
+
+  /*
+   * Display type, in two voices.
+   *
+   * `.display` and the giant wordmark keep the light, uppercase Inter Tight
+   * of the first round: at 16rem a word set light reads as a shape rather than
+   * as a word that got large.
+   *
+   * The hero headline is the other voice: Bricolage Grotesque at its heaviest
+   * weight, mixed case, balanced across its lines. The reference image for
+   * this round was inspiration, not a template — no arrow, no globe — and a
+   * heavy face with its own character at 7rem is what makes the first line
+   * read as a title rather than as a paragraph. Left-aligned on every
+   * viewport: the hero's background is now full of rising engagement rather
+   * than a ribbon that wanted the left third to itself.
+   */
+  .display,
+  .wordmark-giant {
+    font-family: var(--font-display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: -0.04em;
+    line-height: 0.9;
+  }
+  .hero-h1 {
+    font-family: var(--font-hero);
+    font-weight: 800;
+    text-transform: none;
+    letter-spacing: -0.035em;
+    line-height: 0.94;
+    font-size: clamp(2.9rem, 8.6vw, 7.6rem);
+    text-wrap: balance;
+    text-align: left;
+  }
+  /* The one accented word in the headline: the spectrum's cyan with a faint
+   * halo — a text-shadow, which is rasterised once with the glyphs, never a
+   * filter. Weight stays the headline's own so the line keeps one rhythm. */
+  .hero-word {
+    color: var(--color-iri-cyan);
+    text-shadow: 0 0 40px rgba(78, 240, 255, 0.35);
+  }
+
+  /*
+   * Section titles: the hero face one weight lighter, with depth painted as
+   * text-shadow. A hairline of light under each glyph reads as a bevelled
+   * edge; behind it two wide, faint coloured shadows — violet dropping to the
+   * right, cyan to the left — are the scene's light landing on raised type.
+   * Shadows are drawn once with the text, so a title that leans with the
+   * pointer inside a 3D context costs nothing more than the lean.
+   */
+  .title-3d {
+    font-family: var(--font-hero);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06),
+      3px 4px 22px rgba(176, 107, 255, 0.28),
+      -3px 6px 30px rgba(78, 240, 255, 0.16);
+  }
+
+  /*
+   * Pill buttons. Equipment-label type inside a hairline capsule.
+   *
+   * The default (and `.pill-ghost`) fills white from the bottom on hover with
+   * the text going dark — a transform on a pseudo-element, so the fill is
+   * composited rather than repainted. `.pill-primary` is the one violet
+   * control; hover lights an iridescent ring around it instead of filling.
+   *
+   * Pills now live inside 3D contexts — the scene nav, the dock, the pricing
+   * plates — so neither variant carries a backdrop blur or a mask any more:
+   * the ghost is a plain translucent fill, and the primary's ring is a
+   * gradient painted under the button's own opaque body (see below).
+   */
+  /*
+   * Pill buttons — the "magic button" the user pointed at: a dark capsule
+   * with a luminous violet → blue → cyan rim and a glow around it, white
+   * equipment-label type. Hover brightens the rim and the glow and grows the
+   * button a touch; press shrinks it a touch. Nothing follows the cursor.
+   *
+   * The rim is the mask-free recipe: the gradient is painted on the
+   * border-box and the dark fill on the padding-box, so a 1.5px border of
+   * transparent colour shows only the gradient. That works inside a 3D
+   * context, where a mask would flatten it. No filter anywhere for the same
+   * reason — the hover brightness is the glow, not a filter.
+   */
+  .pill {
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+    min-height: 46px;
+    padding: 0.7rem 1.7rem;
+    border-radius: 9999px;
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(180deg, #141b3d 0%, #0c1130 55%, #0a0e26 100%) padding-box,
+      linear-gradient(100deg, #8b5cf6 0%, #5b8cff 48%, #4ef0ff 100%) border-box;
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1.25;
+    text-align: center;
+    text-decoration: none;
+    text-shadow: 0 0 12px rgba(120, 180, 255, 0.35);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow:
+      0 0 0 1px rgba(124, 92, 255, 0.14),
+      0 0 18px rgba(124, 92, 255, 0.45),
+      0 0 44px -6px rgba(78, 240, 255, 0.35),
+      inset 0 0 22px -8px rgba(91, 140, 255, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition:
+      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.35s ease,
+      text-shadow 0.35s ease;
+  }
+  .pill:disabled {
+    cursor: default;
+  }
+  /* The default pill is the primary look; the class stays for its callers. */
+  .pill-primary {
+    color: #fff;
+  }
+  /* The secondary pill: the same capsule with the rim and the glow turned
+   * down, so the hierarchy between the two survives the shared shape. */
+  .pill-ghost {
+    background:
+      linear-gradient(180deg, #10142e 0%, #0b0f25 55%, #090c1e 100%) padding-box,
+      linear-gradient(100deg, rgba(139, 92, 246, 0.6), rgba(91, 140, 255, 0.55) 48%, rgba(78, 240, 255, 0.6)) border-box;
+    box-shadow:
+      0 0 14px -2px rgba(124, 92, 255, 0.3),
+      0 0 32px -10px rgba(78, 240, 255, 0.22),
+      inset 0 0 18px -10px rgba(91, 140, 255, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  /* Smaller, for the scene nav and the dock. */
+  .pill-sm {
+    min-height: 36px;
+    padding: 0.5rem 1.05rem;
+    font-size: 10.5px;
+  }
+  /*
+   * 36px is a comfortable target for a cursor, which lands where it is pointed,
+   * and too small for a thumb, which does not: 44px is the floor both Apple and
+   * the WCAG target-size guidance settle on. So the compact pill keeps its size
+   * where there is a fine pointer and grows where there is not — the type and
+   * the horizontal padding are left alone, so nothing about the design changes
+   * except how much of it can be hit.
+   */
+  @media (pointer: coarse) {
+    .pill-sm {
+      min-height: 44px;
+    }
+  }
+  @media (hover: hover) {
+    .pill:hover:not(:disabled) {
+      transform: scale(1.03);
+      text-shadow: 0 0 16px rgba(160, 210, 255, 0.7);
+      box-shadow:
+        0 0 0 1px rgba(170, 140, 255, 0.4),
+        0 0 28px rgba(139, 92, 246, 0.75),
+        0 0 70px -6px rgba(78, 240, 255, 0.6),
+        inset 0 0 28px -6px rgba(91, 140, 255, 0.8),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    }
+    .pill-ghost:hover:not(:disabled) {
+      box-shadow:
+        0 0 0 1px rgba(170, 140, 255, 0.25),
+        0 0 22px -2px rgba(139, 92, 246, 0.5),
+        0 0 50px -10px rgba(78, 240, 255, 0.4),
+        inset 0 0 22px -8px rgba(91, 140, 255, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    }
+  }
+  .pill:active:not(:disabled) {
+    transform: scale(0.985);
+    transition-duration: 0.08s;
+  }
+
+  /*
+   * Glass panels — the flat-page material.
+   *
+   * A 3% white fill with a slightly brighter top edge, a hairline border and a
+   * backdrop blur, so the stars behind a panel soften into it rather than
+   * showing through as points. `.glass-iri` swaps the hairline for a 1px
+   * iridescent ring: a pseudo-element carrying the gradient, masked down to its
+   * own 1px padding. The ring is static — repainting a gradient the size of a
+   * pricing card every frame is not worth a shimmer on its edge.
+   *
+   * This is the material for surfaces OUTSIDE a 3D context. Inside one, both
+   * the blur and the mask are the thing the layering note forbids, so a
+   * `.glass` or `.glass-iri` that lands inside a plate is rebuilt as opaque
+   * slab glass further down (`.plate .glass`, `.plate-face.glass-iri`).
+   */
+  .glass,
+  .glass-iri {
+    position: relative;
+    isolation: isolate;
+    border-radius: var(--radius-panel);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.05),
+      rgba(255, 255, 255, 0.025) 40%,
+      rgba(255, 255, 255, 0.03)
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 30px 60px -40px rgba(0, 0, 0, 0.9);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+    transition:
+      border-color 0.4s ease,
+      box-shadow 0.4s ease;
+  }
+  .glass-iri {
+    border-color: transparent;
+  }
+  .glass-iri::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--iri-diag);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0.85;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+  @media (hover: hover) {
+    .glass:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .glass-iri:hover::before {
+      opacity: 1;
+    }
+  }
+
+  /* A soft violet-to-cyan glow for a featured panel. Includes the glass top
+   * highlight so it can sit on `.glass-iri` without losing it. */
+  .glow-iri {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 0 0 1px rgba(176, 107, 255, 0.1),
+      0 30px 90px -30px rgba(91, 140, 255, 0.55),
+      0 0 70px -20px rgba(78, 240, 255, 0.28),
+      0 40px 80px -50px rgba(0, 0, 0, 0.9);
+  }
+
+  /* A 1px rule in the spectrum, fading out at both ends. Works on a div or an hr. */
+  .iri-line {
+    display: block;
+    width: 100%;
+    height: 1px;
+    border: 0;
+    background: var(--iri-rule);
+  }
+
+  /* A small badge filled with the sweeping spectrum; dark text reads on every stop. */
+  .badge-iri {
+    background-image: var(--iri-sweep);
+    background-size: 300% 100%;
+    color: var(--color-bg);
+    animation: iri-sweep 9s linear infinite;
+  }
+
+  /*
+   * The scene nav's links: equipment-label type, with an underline in the
+   * spectrum that grows in from the left on hover. They float on their own
+   * translateZ in the scene's 3D layer, so nothing here blurs or masks.
+   */
+  .nav-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    text-decoration: none;
+    transition: color 0.3s ease;
+  }
+  .nav-link::after {
+    content: "";
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.3rem;
+    height: 1px;
+    background: var(--iri-diag);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @media (hover: hover) {
+    .nav-link:hover {
+      color: var(--color-text);
+    }
+    .nav-link:hover::after {
+      transform: scaleX(1);
+    }
+  }
+
+  /*
+   * The wordmark.
+   *
+   * The mark is a dark tile with a 1px iridescent rim that turns slowly. The
+   * rim is not a gradient being repainted: an oversized conic square rotates
+   * behind an opaque inner tile (`::after`, inset by the rim's width) and the
+   * tile's own rounded overflow clips the outside. Only a transform animates,
+   * so the wordmark — floating in the scene on every page — costs nothing per
+   * frame. The square is twice the tile's size, so its inscribed circle always
+   * covers the tile's corners mid-rotation. (This is also the recipe every
+   * ring in the scene layer uses: a gradient behind an opaque body, never a
+   * mask.)
+   */
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+  .wordmark-nav .wordmark-word {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .wordmark-inline {
+    gap: 0.35em;
+  }
+  .mark {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    flex: none;
+  }
+  .mark::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 200%;
+    height: 200%;
+    margin: -100% 0 0 -100%;
+    z-index: -2;
+    background: conic-gradient(
+      from 0deg,
+      var(--color-iri-pink),
+      var(--color-iri-violet),
+      var(--color-iri-blue),
+      var(--color-iri-cyan),
+      #fff,
+      var(--color-iri-cyan),
+      var(--color-iri-blue),
+      var(--color-iri-violet),
+      var(--color-iri-pink)
+    );
+    animation: spin-slow 10s linear infinite;
+  }
+  .mark::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    z-index: -1;
+    border-radius: 8px;
+    background: linear-gradient(160deg, #1a1d31, #0a0c17);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+  .mark svg {
+    width: 54%;
+    height: 54%;
+  }
+  .wordmark-inline .mark {
+    width: 1em;
+    height: 1em;
+    border-radius: 0.32em;
+  }
+  .wordmark-inline .mark::after {
+    border-radius: calc(0.32em - 1px);
+  }
+  /* The word alone, at footer scale. Still: it is a viewport wide, and moving
+   * a gradient through that much text every frame would cost more than the
+   * quarter-opacity result could ever show. */
+  .wordmark-giant {
+    display: block;
+    font-size: clamp(4rem, 18vw, 16rem);
+    white-space: nowrap;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*                           THE SCENE LAYER                          */
+  /* ------------------------------------------------------------------ */
+
+  /*
+   * A section that is a 3D space. SceneSection sets these itself; the class
+   * is here so anything else that opens a perspective can share the rule
+   * below that strips blurs from whatever lands inside it. `overflow-x: clip`
+   * rather than `hidden`: clip does not create a scroll container, so it does
+   * not flatten the 3D context the way `overflow: hidden` would.
+   */
+  .scene {
+    perspective: 1400px;
+    transform-style: preserve-3d;
+    overflow-x: clip;
+  }
+
+  /*
+   * Arriving as the reader scrolls to it: transparent and 24px low until the
+   * observer adds `.is-in`, then a 900ms rise. The `translate` property, not
+   * `transform`, so the rise composes with a tilt or a translateZ that a
+   * component writes to the same element's `transform`. `--fade-delay`
+   * staggers a row.
+   *
+   * Add the class from an effect, only once IntersectionObserver is known to
+   * exist — the server markup ships without it, so a reader without
+   * JavaScript, a crawler, or a browser without the observer sees the content
+   * rather than nothing (the `scripting: none` rule below is the belt to that
+   * brace). An ancestor at opacity < 1 flattens its 3D children for the
+   * duration of the fade, so a slab's edge layers must come BEFORE its face
+   * in the DOM: painting order and depth order then agree, and the slab reads
+   * the same flattened as sorted.
+   */
+  .fade-in-view {
+    opacity: 0;
+    translate: 0 24px;
+    transition:
+      opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+      translate 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--fade-delay, 0ms);
+  }
+  .fade-in-view.is-in {
+    opacity: 1;
+    translate: 0 0;
+  }
+  @media (scripting: none) {
+    .fade-in-view {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+
+  /*
+   * THE SLAB. A plate of smoked glass with real thickness.
+   *
+   * `.plate` is the 3D group: it keeps its children in one space and a
+   * component writes the lean (a few degrees toward the pointer) to its
+   * transform. It is deliberately NOT a stacking context by way of
+   * `isolation` — that is a grouping property and would flatten the slab.
+   *
+   * `.plate-face` is the top surface, at z 0. It is opaque on purpose: a
+   * blurred pane cannot live in a 3D context (see LAYERING), and text on a
+   * plate that hangs over a starfield or a canvas has to stay legible. The
+   * opacity is not a flat fill, though. The body (`::after`) is a blue-black
+   * gradient, lighter at the top where the scene's light lands, under a
+   * diagonal sheen that brightens the top-left corner and a faint streak
+   * across the lower right — the way a dark glass panel catches a room. A
+   * hairline of light along the top edge and a line of shadow along the
+   * bottom make the bevel. The ring (`::before`) is the face's box grown by
+   * one pixel with the spectrum on it, hidden under the opaque body except
+   * for that pixel; `--plate-ring` is its opacity.
+   *
+   * `.plate-edge` is the thickness. It is the face's outline translated back
+   * by `--plate-depth`, with two more layers (its pseudo-elements) at a third
+   * and two thirds of the way forward, each a step lighter, so when the slab
+   * leans the visible edge is a graded strip from the dark back to the lit
+   * face rather than a hollow gap. The back layer casts the contact shadow.
+   * Put it before the face in the DOM (see `.fade-in-view`).
+   *
+   * `.plate-glare` is optional: a spotlight that follows `--mx`/`--my` the
+   * way fx/Tilt's does, a gradient rather than a filter.
+   */
+  .plate {
+    --plate-depth: 10px;
+    /* Every frame carries the buttons' rim, dimmed; hover and `.plate-glow`
+     * bring it up. The frames match the buttons: that is the one style. */
+    --plate-ring: 0.5;
+    position: relative;
+    border-radius: var(--plate-radius, var(--radius-panel));
+    transform-style: preserve-3d;
+  }
+  .plate-face {
+    position: relative;
+    border-radius: var(--plate-radius, var(--radius-panel));
+    border: 1px solid transparent;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow:
+      0 24px 50px -30px rgba(0, 0, 0, 0.85),
+      0 0 22px -10px rgba(124, 92, 255, 0.35),
+      0 0 60px -24px rgba(78, 240, 255, 0.25);
+    transform: translateZ(0);
+    transition:
+      border-color 0.4s ease,
+      box-shadow 0.4s ease;
+  }
+  .plate-face::before,
+  .plate-face::after {
+    content: "";
+    position: absolute;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .plate-face::before {
+    inset: -1.5px;
+    z-index: -2;
+    background: linear-gradient(100deg, #8b5cf6 0%, #5b8cff 48%, #4ef0ff 100%);
+    opacity: var(--plate-ring, 0.5);
+    transition: opacity 0.4s ease;
+  }
+  .plate-face::after {
+    inset: 0;
+    z-index: -1;
+    border-radius: calc(var(--plate-radius, var(--radius-panel)) - 1px);
+    background:
+      linear-gradient(
+        160deg,
+        rgba(255, 255, 255, 0.075) 0%,
+        rgba(255, 255, 255, 0.025) 34%,
+        rgba(255, 255, 255, 0) 58%,
+        rgba(255, 255, 255, 0.03) 100%
+      ),
+      linear-gradient(180deg, #171a2b 0%, #10131f 46%, #0c0e19 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+      inset 0 0 44px -24px rgba(91, 140, 255, 0.45);
+  }
+  .plate-edge {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--plate-radius, var(--radius-panel));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: linear-gradient(180deg, #1a1e30 0%, #0d0f1a 58%, #08090f 100%);
+    box-shadow:
+      0 18px 30px -18px rgba(0, 0, 0, 0.8),
+      0 50px 90px -40px rgba(0, 0, 0, 0.75);
+    transform-style: preserve-3d;
+    transform: translateZ(calc(var(--plate-depth, 10px) * -1));
+    pointer-events: none;
+  }
+  .plate-edge::before,
+  .plate-edge::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .plate-edge::before {
+    background: linear-gradient(180deg, #1d2135, #0f1220 60%, #0a0c16);
+    transform: translateZ(calc(var(--plate-depth, 10px) * 0.34));
+  }
+  .plate-edge::after {
+    background: linear-gradient(180deg, #23283e, #13162a 60%, #0d0f1b);
+    transform: translateZ(calc(var(--plate-depth, 10px) * 0.68));
+  }
+  .plate-glare {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      280px circle at var(--mx, 50%) var(--my, 50%),
+      rgba(255, 255, 255, 0.11),
+      rgba(255, 255, 255, 0.035) 42%,
+      rgba(255, 255, 255, 0) 70%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .plate-glare.is-on {
+    opacity: 1;
+  }
+  /*
+   * The featured slab: the ring lit and a violet-to-cyan glow around it,
+   * restrained enough that three of them in a row still read as glass. Works
+   * on the face or on the group (the ring's opacity inherits down).
+   */
+  .plate-glow {
+    --plate-ring: 1;
+  }
+  .plate-glow.plate-face,
+  .plate-glow .plate-face,
+  .plate-face.glow-iri {
+    border-color: transparent;
+    box-shadow:
+      0 0 0 1px rgba(176, 107, 255, 0.1),
+      0 30px 90px -30px rgba(91, 140, 255, 0.55),
+      0 0 70px -20px rgba(78, 240, 255, 0.28),
+      0 40px 80px -50px rgba(0, 0, 0, 0.9);
+  }
+  .plate-glow .plate-edge {
+    box-shadow:
+      0 18px 30px -18px rgba(0, 0, 0, 0.8),
+      0 50px 90px -40px rgba(0, 0, 0, 0.75),
+      0 40px 90px -30px rgba(91, 140, 255, 0.3);
+  }
+  @media (hover: hover) {
+    .plate:hover .plate-face,
+    .plate-face:hover {
+      --plate-ring: 0.95;
+      box-shadow:
+        0 24px 50px -30px rgba(0, 0, 0, 0.85),
+        0 0 30px -8px rgba(139, 92, 246, 0.55),
+        0 0 80px -20px rgba(78, 240, 255, 0.45);
+    }
+    .plate:hover .plate-glare {
+      opacity: 1;
+    }
+  }
+  /*
+   * Round-one glass that ends up inside a slab — a pricing card that gets the
+   * plate classes, a FAQ row or the proof readout wrapped in one — loses its
+   * blur, and `.glass-iri`'s masked ring becomes the slab recipe: the same
+   * pseudo-element, unmasked and one layer further back, under an opaque body
+   * on `::after`. The ring keeps its 0.85.
+   */
+  .plate .glass,
+  .plate .glass-iri,
+  .scene .glass,
+  .scene .glass-iri,
+  .phone-body .glass,
+  .dock .glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .plate .glass-iri,
+  .plate-face.glass-iri {
+    --plate-ring: 0.85;
+    background: transparent;
+  }
+  .plate .glass-iri::before,
+  .plate-face.glass-iri::before {
+    inset: -1px;
+    z-index: -2;
+    padding: 0;
+    -webkit-mask: none;
+    mask: none;
+    opacity: var(--plate-ring, 0.85);
+  }
+  .plate .glass-iri::after,
+  .plate-face.glass-iri::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: calc(var(--plate-radius, var(--radius-panel)) - 1px);
+    background:
+      linear-gradient(
+        160deg,
+        rgba(255, 255, 255, 0.075) 0%,
+        rgba(255, 255, 255, 0.025) 34%,
+        rgba(255, 255, 255, 0) 58%,
+        rgba(255, 255, 255, 0.03) 100%
+      ),
+      linear-gradient(180deg, #171a2b 0%, #10131f 46%, #0c0e19 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+  /*
+   * Glass placed directly on a face melts into it: the slab is the card, so
+   * the inner panel keeps its padding and loses its own frame — otherwise a
+   * FAQ row reads as a card inside a card, and a `.glass-iri` readout draws a
+   * second ring one pixel inside the plate's own.
+   */
+  .plate-face > .glass,
+  .plate-face > .glass-iri {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+  .plate-face > .glass-iri::before,
+  .plate-face > .glass-iri::after {
+    display: none;
+  }
+
+  /*
+   * THE DESCRIPTORS. The two measured-figure badges, as plates hanging over
+   * the phone's top corners. Same slab recipe at badge scale: an opaque body
+   * (they sit over the picture, and a translucent badge over two videos is a
+   * blend the compositor pays for every frame) with the mono legend inside,
+   * a ring that lights with `.descriptor-lit` — "With Pristine", as the split
+   * shows more of it — and a glow in the screen's own colours. `nowrap`: a
+   * badge floating in the air must never fold its figure onto a second line.
+   * The lift, the lean and the light beam down to the glass are the
+   * component's transforms; this is only the material.
+   */
+  .descriptor {
+    --descriptor-lit: 0;
+    position: relative;
+    isolation: isolate;
+    display: inline-block;
+    padding: 7px 11px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: transparent;
+    font-family: var(--font-mono);
+    color: rgba(255, 255, 255, 0.9);
+    white-space: nowrap;
+    box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.85);
+    transition:
+      box-shadow 0.35s ease,
+      border-color 0.35s ease;
+  }
+  .descriptor::before,
+  .descriptor::after {
+    content: "";
+    position: absolute;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .descriptor::before {
+    inset: -1px;
+    z-index: -2;
+    background: var(--iri-ring);
+    opacity: var(--descriptor-lit);
+    transition: opacity 0.35s ease;
+  }
+  .descriptor::after {
+    inset: 0;
+    z-index: -1;
+    border-radius: 11px;
+    background: linear-gradient(180deg, #1c2038 0%, #0d1020 62%, #090b16 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+  }
+  .descriptor-lit {
+    --descriptor-lit: 1;
+    border-color: transparent;
+    box-shadow:
+      0 14px 30px -14px rgba(0, 0, 0, 0.85),
+      0 0 24px -4px rgba(124, 92, 255, 0.5),
+      0 0 48px -12px rgba(78, 240, 255, 0.35);
+  }
+
+  /*
+   * THE DOCK. Once the reader has scrolled past the first screen the CTA,
+   * the sound toggle and a way back up gather in a capsule at the bottom
+   * right. It is fixed, so it is never inside a 3D context — but it does
+   * float over the stage on a short screen, which is why it is opaque glass
+   * with the iridescent hairline as its rim rather than a blur: nothing it
+   * covers is ever re-sampled. The offsets respect the phone's safe area.
+   *
+   * `position: fixed` is contained by any transformed or perspective
+   * ancestor, so the dock must be rendered outside the scene nav's 3D layer.
+   * `.dock-hidden` is its resting state before the sentinel scrolls out —
+   * transparent, a little low, and out of the pointer's way.
+   */
+  .dock {
+    position: fixed;
+    right: max(18px, env(safe-area-inset-right, 0px));
+    bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    z-index: 60;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    box-shadow:
+      0 20px 50px -20px rgba(0, 0, 0, 0.9),
+      0 0 40px -16px rgba(124, 92, 255, 0.35);
+    transition:
+      opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .dock::before,
+  .dock::after {
+    content: "";
+    position: absolute;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .dock::before {
+    inset: -1px;
+    z-index: -2;
+    background: var(--iri-ring);
+    opacity: 0.45;
+  }
+  .dock::after {
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(180deg, #181b2d 0%, #0d0f1b 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  }
+  .dock-hidden {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+    pointer-events: none;
+  }
+
+  /*
+   * Round icon buttons: the sound toggle and the dock's back-to-top. Forty
+   * pixels of dark glass with a hairline. The sound toggle is state, so it
+   * shows it as brightness, not colour: lit white with a faint halo when
+   * sound is on, dimmed when it is off (the icon itself changes too).
+   */
+  .icon-btn,
+  .sound-toggle {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+    color: var(--color-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color 0.25s ease,
+      border-color 0.25s ease,
+      box-shadow 0.3s ease,
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .icon-btn svg,
+  .sound-toggle svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+  }
+  .icon-btn:active,
+  .sound-toggle:active {
+    transform: scale(0.94);
+  }
+  .sound-toggle[aria-pressed="true"] {
+    color: var(--color-text);
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 18px -4px rgba(255, 255, 255, 0.28);
+  }
+  .sound-toggle[aria-pressed="false"] {
+    color: var(--color-dim);
+  }
+  @media (hover: hover) {
+    .icon-btn:hover,
+    .sound-toggle:hover {
+      color: var(--color-text);
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+  }
+
+  /*
+   * THE PHONE, with a body.
+   *
+   * `.phone-body` is the 3D group; its children are the front bezel (the
+   * component's, holding the screen), four side slabs, and a back plate
+   * `--phone-depth` behind. Each side slab is laid out just outside the
+   * bezel's edge and turned ninety degrees about that edge, so it stands in
+   * the plane of the edge running from z 0 back to −depth with its lit side
+   * facing out. The side of each slab that touches the bezel is its FRONT:
+   * that is where the gradient is lightest and where a one-pixel highlight
+   * catches the screen's light, and it darkens toward the back. The top slab
+   * is the lightest of the four (the rim light comes from the upper left),
+   * the bottom the darkest.
+   *
+   * The slabs stop short of the corners by most of the bezel's radius: a flat
+   * strip run into a 46px corner would poke out past the curve. What is left
+   * at each corner is a gap a few pixels wide at full tilt, and the back plate
+   * — the same dark as the slabs — shows through it.
+   *
+   * Positions and turns are here so the classes are complete on their own; a
+   * component that lays the slabs out itself overrides them inline.
+   */
+  .phone-body {
+    --phone-depth: 14px;
+    --phone-radius: 46px;
+    position: relative;
+    border-radius: var(--phone-radius);
+    transform-style: preserve-3d;
+  }
+  .phone-face-left,
+  .phone-face-right,
+  .phone-face-top,
+  .phone-face-bottom,
+  .phone-face-back {
+    position: absolute;
+    pointer-events: none;
+    backface-visibility: hidden;
+  }
+  .phone-face-left,
+  .phone-face-right {
+    top: calc(var(--phone-radius) * 0.72);
+    bottom: calc(var(--phone-radius) * 0.72);
+    width: var(--phone-depth);
+  }
+  .phone-face-top,
+  .phone-face-bottom {
+    left: calc(var(--phone-radius) * 0.72);
+    right: calc(var(--phone-radius) * 0.72);
+    height: var(--phone-depth);
+  }
+  .phone-face-left {
+    left: calc(var(--phone-depth) * -1);
+    transform-origin: right center;
+    transform: rotateY(-90deg);
+    background: linear-gradient(270deg, #2b3049 0%, #161a2c 45%, #0a0c15 100%);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14);
+  }
+  .phone-face-right {
+    right: calc(var(--phone-depth) * -1);
+    transform-origin: left center;
+    transform: rotateY(90deg);
+    background: linear-gradient(90deg, #262b42 0%, #141729 45%, #0a0c15 100%);
+    box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.12);
+  }
+  .phone-face-top {
+    top: calc(var(--phone-depth) * -1);
+    transform-origin: center bottom;
+    transform: rotateX(90deg);
+    background: linear-gradient(0deg, #363c5a 0%, #1a1e33 50%, #0b0d17 100%);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .phone-face-bottom {
+    bottom: calc(var(--phone-depth) * -1);
+    transform-origin: center top;
+    transform: rotateX(-90deg);
+    background: linear-gradient(180deg, #1c2032 0%, #0f1220 50%, #07080e 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .phone-face-back {
+    inset: 0;
+    border-radius: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: linear-gradient(180deg, #13162a 0%, #0a0c16 62%, #07080e 100%);
+    box-shadow:
+      0 50px 110px -34px rgba(0, 0, 0, 0.95),
+      0 90px 140px -60px rgba(0, 0, 0, 0.8);
+    transform: translateZ(calc(var(--phone-depth) * -1));
+  }
+  /*
+   * The front bezel, if the component wants it from here: the same ring
+   * recipe as the plates, with `--phone-ring` for the iridescent ring's
+   * opacity (the component follows the split with it) over an opaque bezel
+   * body. It is a flat plane inside the body's 3D group, which is what the
+   * two videos inside it need.
+   */
+  .phone-bezel {
+    --phone-ring: 0.1;
+    position: relative;
+    isolation: isolate;
+    padding: 8px;
+    border-radius: var(--phone-radius, 46px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: transparent;
+    box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.95);
+  }
+  .phone-bezel::before,
+  .phone-bezel::after {
+    content: "";
+    position: absolute;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .phone-bezel::before {
+    inset: -1px;
+    z-index: -2;
+    background: var(--iri-ring);
+    opacity: var(--phone-ring);
+  }
+  .phone-bezel::after {
+    inset: 0;
+    z-index: -1;
+    border-radius: calc(var(--phone-radius, 46px) - 1px);
+    background: linear-gradient(180deg, #13151f 0%, #0d0f18 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  /*
+   * The glass over the screen: a highlight sweeping in from the top-left
+   * corner and one thin band across the picture. Two static gradients on
+   * one layer — no filter, no blend mode — and kept faint enough that the
+   * comparison underneath is never the thing it softens. Under the notch and
+   * the handle (z 15 against their 20 and 30) so both stay crisp, and
+   * pointer-transparent so the drag lands on the screen.
+   */
+  .phone-glass {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    border-radius: inherit;
+    background:
+      linear-gradient(
+        112deg,
+        rgba(255, 255, 255, 0.1) 0%,
+        rgba(255, 255, 255, 0.045) 14%,
+        rgba(255, 255, 255, 0) 30%
+      ),
+      linear-gradient(
+        112deg,
+        rgba(255, 255, 255, 0) 33%,
+        rgba(255, 255, 255, 0.035) 37%,
+        rgba(255, 255, 255, 0.035) 41%,
+        rgba(255, 255, 255, 0) 46%
+      );
+    pointer-events: none;
+  }
 }
 
-.rainbow-number {
-  background-image: linear-gradient(
-    100deg,
-    #ff5d8f, #ffb020, #35d07f, #3ecbff, #7c5cff, #ff5d8f
-  );
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: pristine-rainbow 6s linear infinite;
+@keyframes brand-sweep {
+  from { --brand-x: 0%; }
+  to   { --brand-x: -150%; }
+}
+@keyframes iri-sweep {
+  from { background-position: 0% 50%; }
+  to   { background-position: -150% 50%; }
 }
 
-/* Someone who has asked for less motion should get a still gradient, not a
-   still grey number — the emphasis survives, the movement does not. */
+/*
+ * Someone who has asked for less motion gets the same materials, still: the
+ * gradients stay, the glints and sweeps stop, and hover no longer moves the
+ * light. Emphasis survives; movement does not. In the scene layer that means
+ * things appear where they are instead of rising into place, the dock fades
+ * without sliding, and a pressed button does not shrink — the slab edges,
+ * the rings, the glows and the title shadows are all still, so they stay.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .rainbow-number { animation: none; background-position: 40% 50%; }
+  .brand,
+  .rainbow-number,
+  .badge-iri,
+  .mark::before {
+    animation: none !important;
+  }
+  .brand,
+  .rainbow-number,
+  .brand:hover,
+  .rainbow-number:hover,
+  a:hover .brand {
+    transition: none !important;
+    --brand-x: -40%;
+    --brand-boost: 0% !important;
+    --shine-a: 0 !important;
+  }
+  .fade-in-view {
+    transition: none;
+    translate: 0 0;
+  }
+  .dock {
+    transition: opacity 0.3s ease;
+  }
+  .dock-hidden {
+    transform: none;
+  }
+  .icon-btn:active,
+  .sound-toggle:active {
+    transform: none;
+  }
+  .plate-glare {
+    transition: none;
+  }
+}
+
+/*
+ * The comparison stage.
+ *
+ * NO REFLECTION OF THE PHONE. A mirrored copy of the bezel under it
+ * (-webkit-box-reflect) was tried and taken out: a reflection is the element
+ * rendered into a texture and drawn twice, and this element contains two
+ * videos inside a 3D transform. That is the same shape of cost as the grain
+ * overlay above — work re-done over changing pixels every frame — and it
+ * bought a dim mirror image. The glass the phone sits on is a pool of the
+ * screen's light instead (Stage), which is painted once.
+ *
+ * The hand is no longer drawn here: it is a model rendered by three.js into
+ * the two canvases described under LAYERING, and the phone it holds is the
+ * `.phone-body` above. The holograms are the four engagement figures floating
+ * out of the screen: motes drift up out of each card and the card bobs; both
+ * stop under reduced motion, while the figures and their light stay.
+ */
+@keyframes holo-rise {
+  0%   { transform: translate3d(0, 0, 0) scale(0.5); opacity: 0; }
+  12%  { opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), -64px, 0) scale(1); opacity: 0; }
+}
+@keyframes holo-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+.holo-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 0 6px currentColor;
+  animation: holo-rise 3.4s linear infinite;
+}
+.holo-float {
+  animation: holo-float 4.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .holo-particle { display: none; }
+  .holo-float { animation: none; }
+}
+
+/*
+ * The pricing ladder's backgrounds, each one more alive than the last. Every
+ * effect is a transform or opacity animation on a real element inside the
+ * card (`.tier-fx`, clipped to the card's corners and painted between the
+ * slab's body and its content), so nothing repaints per frame and nothing
+ * needs a filter or a mask. Weekly breathes one faint orb; Monthly adds a
+ * second orb and a light sweeping across; Annual runs both faster in the
+ * spectrum's colours, with sparks rising and its rim sweeping.
+ */
+.tier-card > .tier-fx {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.plate-face.tier-card::before { z-index: -3; }
+.plate-face.tier-card::after { z-index: -2; }
+.tier-orb {
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.42), rgba(139, 92, 246, 0) 68%);
+  animation: tier-orbit 16s ease-in-out infinite;
+  will-change: transform;
+}
+.tier-orb:nth-child(2) {
+  background: radial-gradient(circle, rgba(78, 240, 255, 0.34), rgba(78, 240, 255, 0) 68%);
+  animation-duration: 21s;
+  animation-delay: -7s;
+  left: 40%;
+  top: 30%;
+}
+.tier-week .tier-orb { opacity: 0.45; animation-duration: 26s; }
+.tier-month .tier-orb { opacity: 0.85; }
+.tier-year .tier-orb { opacity: 1; animation-duration: 10s; }
+.tier-year .tier-orb:nth-child(1) {
+  background: radial-gradient(circle, rgba(255, 106, 213, 0.42), rgba(255, 106, 213, 0) 68%);
+}
+.tier-year .tier-orb:nth-child(2) { animation-duration: 13s; }
+.tier-sweep {
+  position: absolute;
+  top: -20%;
+  left: -40%;
+  width: 34%;
+  height: 140%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0));
+  transform: translateX(-120%) rotate(18deg);
+  animation: tier-sweep 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+.tier-year .tier-sweep { animation-duration: 4.5s; opacity: 1.4; }
+.tier-spark {
+  position: absolute;
+  bottom: 12%;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 0 8px currentColor;
+  animation: holo-rise 4.2s linear infinite;
+}
+.tier-year.plate-face::before {
+  background: var(--iri-sweep);
+  background-size: 300% 100%;
+  animation: iri-sweep 6s linear infinite;
+}
+@keyframes tier-orbit {
+  0%, 100% { transform: translate(-22%, -14%) scale(1); }
+  50%      { transform: translate(36%, 46%) scale(1.3); }
+}
+@keyframes tier-sweep {
+  0%   { transform: translateX(-120%) rotate(18deg); }
+  55%, 100% { transform: translateX(520%) rotate(18deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tier-orb, .tier-sweep, .tier-year.plate-face::before { animation: none; }
+  .tier-spark { display: none; }
+}
+
+/*
+ * The morph from the drop zone into the phone (DropMorph.tsx): a slab of the
+ * drop plate's material, fixed to the viewport and flown by the Web Animations
+ * API, then a burst of the screen's light where it lands. Both are one-off
+ * elements that remove themselves.
+ */
+.drop-morph {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(180deg, #141b3d 0%, #0c1130 55%, #0a0e26 100%) padding-box,
+    linear-gradient(100deg, #8b5cf6 0%, #5b8cff 48%, #4ef0ff 100%) border-box;
+  box-shadow:
+    0 0 0 1px rgba(124, 92, 255, 0.14),
+    0 0 28px rgba(124, 92, 255, 0.5),
+    0 0 70px -6px rgba(78, 240, 255, 0.4),
+    0 40px 100px -30px rgba(0, 0, 0, 0.9);
+}
+.drop-flash {
+  position: fixed;
+  z-index: 71;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    rgba(255, 255, 255, 0.75),
+    rgba(78, 240, 255, 0.35) 40%,
+    rgba(124, 92, 255, 0) 72%
+  );
+}
+
+/*
+ * The pricing cards arrive: each rises in a beat after the last (the delay is
+ * the card's --rise-delay), its price pops a moment later, and the two
+ * fuller plans breathe a soft aura behind them. Hover lifts a card a few
+ * pixels. All of it is transform and opacity.
+ */
+@keyframes pricing-rise {
+  from { opacity: 0; translate: 0 28px; scale: 0.97; }
+  to   { opacity: 1; translate: 0 0; scale: 1; }
+}
+.pricing-rise {
+  animation: pricing-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+@keyframes price-pop {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.9); }
+  60%  { opacity: 1; transform: translateY(0) scale(1.06); }
+  100% { opacity: 1; transform: none; }
+}
+.price-pop {
+  display: inline-block;
+  animation: price-pop 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--rise-delay, 0ms) + 260ms);
+}
+.tier-aura {
+  position: absolute;
+  inset: -30px;
+  z-index: -4;
+  border-radius: 44px;
+  pointer-events: none;
+  background: radial-gradient(
+    60% 55% at 50% 40%,
+    rgba(139, 92, 246, 0.34),
+    rgba(78, 240, 255, 0.12) 55%,
+    rgba(78, 240, 255, 0) 75%
+  );
+  animation: tier-aura 5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.tier-year .tier-aura {
+  background: radial-gradient(
+    60% 55% at 50% 40%,
+    rgba(255, 106, 213, 0.32),
+    rgba(78, 240, 255, 0.16) 55%,
+    rgba(78, 240, 255, 0) 75%
+  );
+  animation-duration: 4s;
+}
+@keyframes tier-aura {
+  0%, 100% { transform: scale(0.96); opacity: 0.7; }
+  50%      { transform: scale(1.05); opacity: 1; }
+}
+@media (hover: hover) {
+  .tier-card:hover {
+    transform: translateY(-4px) translateZ(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pricing-rise, .price-pop, .tier-aura { animation: none; }
+  .tier-card:hover { transform: translateZ(0); }
+}
+
+/*
+ * Text fields, in the buttons' material: a dark well with a dimmed rim that
+ * lights on focus. No filter, no mask, so a field inside a slab is fine.
+ */
+.field {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(180deg, #0e1230 0%, #0a0e24 100%) padding-box,
+    linear-gradient(100deg, rgba(139, 92, 246, 0.45), rgba(91, 140, 255, 0.4) 48%, rgba(78, 240, 255, 0.45)) border-box;
+  color: var(--color-text);
+  padding: 0.9rem 1rem;
+  font-size: 15px;
+  line-height: 1.4;
+  outline: none;
+  transition: box-shadow 0.3s ease, background 0.3s ease;
+}
+.field::placeholder {
+  color: var(--color-dim);
+}
+.field:focus,
+.field:focus-visible {
+  outline: none;
+  background:
+    linear-gradient(180deg, #111637 0%, #0c1029 100%) padding-box,
+    linear-gradient(100deg, #8b5cf6, #5b8cff 48%, #4ef0ff) border-box;
+  box-shadow:
+    0 0 0 4px rgba(124, 92, 255, 0.14),
+    0 0 26px -6px rgba(78, 240, 255, 0.5);
+}
+
+/* The download's progress: a track and a bar that fills over the hold
+ * (PATCH_MIN_MS in the tool), lit in the spectrum. */
+.patch-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.patch-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8b5cf6, #5b8cff 50%, #4ef0ff);
+  box-shadow: 0 0 14px rgba(78, 240, 255, 0.55);
+  animation: patch-fill 3.8s cubic-bezier(0.3, 0.1, 0.2, 1) forwards;
+}
+@keyframes patch-fill {
+  from { width: 0; }
+  70%  { width: 82%; }
+  to   { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .patch-bar { animation-duration: 0.01s; width: 100%; }
+}
+
+/* The after-download notice: an amber warning disc, and the plate arriving
+ * with a short rise-and-settle. */
+.notice-warn {
+  color: #ffb340;
+  background: rgba(255, 179, 64, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 179, 64, 0.35), 0 0 28px rgba(255, 179, 64, 0.35);
+}
+.notice-in {
+  animation: notice-in 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice-in { animation: none; }
+}
+
+/* The drop zone is glass, not a slab: the field behind it shows through and
+ * the words sit on a soft dark pool so they still read. */
+.drop-clear .plate-face,
+.drop-clear.plate-face {
+  background:
+    radial-gradient(60% 70% at 50% 50%, rgba(5, 6, 12, 0.5), rgba(5, 6, 12, 0.18) 100%);
+}
+
+/* The slab in flight carries the reader's video. */
+.drop-morph {
+  overflow: hidden;
+}
+.drop-morph video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+
+/* The bloom behind the phone: each icon drifts on its own period, and its
+ * opacity and scale follow the split with a short ease so a drag reads as
+ * a swell, not a flicker. */
+.bloom-icon {
+  transition: opacity 260ms ease-out, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+.bloom-shape {
+  animation: bloom-float var(--bloom-dur, 7s) ease-in-out var(--bloom-delay, 0s) infinite;
+}
+.bloom-halo {
+  animation: bloom-breathe calc(var(--bloom-dur, 7s) * 0.8) ease-in-out var(--bloom-delay, 0s) infinite;
+}
+@keyframes bloom-float {
+  0%, 100% { transform: translateY(6px); }
+  50%      { transform: translateY(-6px); }
+}
+@keyframes bloom-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(0.92); }
+  50%      { opacity: 1; transform: scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bloom-shape, .bloom-halo { animation: none; }
 }

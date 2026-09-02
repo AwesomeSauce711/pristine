@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import Nav from '@/components/Nav';
+import PageShell from '@/components/PageShell';
+import Plate3D from '@/components/Plate3D';
 
 /*
  * The three outcomes of a checkout that do NOT go straight back to the tool.
@@ -56,11 +57,11 @@ function Welcome() {
 
   return (
     <>
-      <Nav />
-      <main id="main" className="mx-auto max-w-lg px-6 py-24">
+      <PageShell className="max-w-lg">
+        <Plate3D depth={10} tilt={1.5} className="p-7 md:p-9">
         {state === 'code' && (
           <>
-            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+            <h1 className="title-3d text-[1.7rem]">
               Payment received — one more step
             </h1>
             <p className="mt-4 text-[15px] leading-relaxed text-muted">
@@ -74,7 +75,7 @@ function Welcome() {
             </p>
             <Link
               href="/sign-in?next=%2Fapp"
-              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+              className="pill pill-primary mt-8 w-full"
             >
               Enter the code
             </Link>
@@ -83,7 +84,7 @@ function Welcome() {
 
         {state === 'pending' && (
           <>
-            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+            <h1 className="title-3d text-[1.7rem]">
               {entitled ? 'You’re all set' : 'Finishing up…'}
             </h1>
             <p className="mt-4 text-[15px] leading-relaxed text-muted">
@@ -93,7 +94,7 @@ function Welcome() {
             </p>
             <Link
               href="/app"
-              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+              className="pill pill-primary mt-8 w-full"
             >
               Back to the tool
             </Link>
@@ -102,7 +103,7 @@ function Welcome() {
 
         {(state === 'error' || state === 'unknown') && (
           <>
-            <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+            <h1 className="title-3d text-[1.7rem]">
               Sign in to pick up where you left off
             </h1>
             <p className="mt-4 text-[15px] leading-relaxed text-muted">
@@ -111,13 +112,14 @@ function Welcome() {
             </p>
             <Link
               href="/sign-in?next=%2Fapp"
-              className="mt-8 block rounded-xl bg-accent px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-accent-soft"
+              className="pill pill-primary mt-8 w-full"
             >
               Sign in
             </Link>
           </>
         )}
-      </main>
+        </Plate3D>
+      </PageShell>
     </>
   );
 }

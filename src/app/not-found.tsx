@@ -1,13 +1,12 @@
 import Link from 'next/link';
-import Nav from '@/components/Nav';
+import PageShell from '@/components/PageShell';
 
 export default function NotFound() {
   return (
     <>
-      <Nav />
-      <main id="main" className="mx-auto max-w-lg px-6 py-32 text-center">
+      <PageShell className="max-w-lg text-center">
         <p className="legend">404</p>
-        <h1 className="mt-4 text-[1.8rem] font-semibold tracking-[-0.02em]">
+        <h1 className="title-3d mt-4 text-[1.8rem]">
           There&rsquo;s nothing here
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-muted">
@@ -16,18 +15,18 @@ export default function NotFound() {
         <div className="mt-9 flex flex-wrap justify-center gap-3">
           <Link
             href="/app"
-            className="rounded-xl bg-accent px-6 py-3 text-[14px] font-medium text-white transition hover:bg-accent-soft"
+            className="pill pill-primary"
           >
             Open the tool
           </Link>
           <Link
             href="/"
-            className="rounded-xl border border-line px-6 py-3 text-[14px] text-muted transition hover:border-dim hover:text-text"
+            className="pill pill-ghost"
           >
             Back home
           </Link>
         </div>
-      </main>
+      </PageShell>
     </>
   );
 }

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { siteOrigin } from '@/lib/origin';
 import { currentUser } from '@/lib/auth';
-import { priceIdForPlan, stripe } from '@/lib/billing/stripe';
+import { PriceMismatchError, stripe, verifiedPriceIdForPlan } from '@/lib/billing/stripe';
 import { CLAIM_COOKIE, CLAIM_TTL_MS } from '@/lib/billing/claim';
 import { methodStatus, sellingIsOpen } from '@/lib/method-status';
 import { PLANS, disclosure, type PlanId } from '@/lib/plans';
@@ -70,8 +70,10 @@ export async function POST(req: Request) {
     return Response.json({
       code: 'selling_paused',
       message: note ?? (status === 'broken'
-        ? 'The method is not working right now, so we have stopped selling subscriptions. '
-          + 'Please check back — we would rather lose the sale than take your money for something broken.'
+        ? 'Pristine is temporarily not working after a platform change, and we are restoring it '
+          + 'as fast as we can. New subscriptions are paused until it is back — please check again '
+          + 'soon; we would rather wait for your money than take it for something that is not '
+          + 'working today.'
         : 'We are checking a possible problem and have paused new subscriptions for the moment. '
           + 'Please try again shortly.'),
     }, { status: 503 });
@@ -138,6 +140,27 @@ export async function POST(req: Request) {
   /* ---- record consent -------------------------------------------------- */
 
   const firstChargeAt = new Date(Date.now() + plan.trialDays * 86_400_000);
+  /*
+   * The Price Stripe will charge must be the price the customer is being
+   * shown; see verifiedPriceIdForPlan. A mismatch is our configuration
+   * error, so the sale is refused with an honest message and the error is
+   * logged loudly — never charged and sorted out later.
+   */
+  let priceId: string;
+  try {
+    priceId = await verifiedPriceIdForPlan(planId);
+  } catch (e) {
+    if (e instanceof PriceMismatchError) {
+      console.error(`[checkout] REFUSED: ${e.message}. Run \`npm run stripe:seed\` and update the STRIPE_PRICE_* env vars.`);
+      return Response.json({
+        code: 'price_mismatch',
+        message: 'Checkout is paused for a moment while we correct a pricing setting. '
+          + 'Nothing has been charged. Please try again shortly.',
+      }, { status: 503 });
+    }
+    throw e;
+  }
+
   const text = disclosure(plan, firstChargeAt);
   const origin = siteOrigin(req);
 
@@ -146,7 +169,7 @@ export async function POST(req: Request) {
     // told us which email paid. The column is nullable for exactly this.
     userId: user?.id ?? null,
     kind: plan.trialDays > 0 ? 'trial_negative_option' : 'immediate_charge',
-    priceId: priceIdForPlan(planId),
+    priceId,
     disclosureText: text,
     disclosureSha256: await sha256Hex(text),
     amountCents: plan.amount,
@@ -180,7 +203,7 @@ export async function POST(req: Request) {
     // handle instead — a non-secret lookup key, never the nonce itself, because
     // this field is rendered in the Stripe Dashboard and in every webhook body.
     client_reference_id: user ? user.id : `pc_${pendingId}`,
-    line_items: [{ price: priceIdForPlan(planId), quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
 
     // Always take a card, including for trials. Stated on the page too.
     payment_method_collection: 'always',

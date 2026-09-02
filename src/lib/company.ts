@@ -90,4 +90,4 @@ export function missingCompanyDetails(): string[] {
 export const legalIsComplete = (): boolean => missingCompanyDetails().length === 0;
 
 /** Last substantive revision. Update when the terms actually change. */
-export const LEGAL_UPDATED = 'not yet published';
+export const LEGAL_UPDATED = '2 September 2026';

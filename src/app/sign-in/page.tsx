@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import Nav from '@/components/Nav';
+import PageShell from '@/components/PageShell';
+import Plate3D from '@/components/Plate3D';
 
 /*
  * Sign in with an emailed code. No passwords.
@@ -79,13 +80,13 @@ function SignInForm() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-6 py-24">
-      <h1 className="text-[1.7rem] font-semibold tracking-[-0.02em]">
+    <Plate3D depth={10} tilt={1.5} className="p-7 md:p-9">
+      <h1 className="title-3d text-[1.7rem]">
         {step === 'email' ? 'Sign in' : 'Check your email'}
       </h1>
       <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
         {step === 'email'
-          ? 'We will email you a six-digit code. No password to remember.'
+          ? 'No password to remember. We email you a six-digit code, and this device stays signed in for six months.'
           : <>We sent a code to <span className="text-text">{email}</span>. It expires in ten minutes.</>}
       </p>
 
@@ -99,14 +100,12 @@ function SignInForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            className="w-full rounded-xl border border-line bg-panel px-4 py-3.5 text-[15px]
-                       outline-none transition placeholder:text-dim focus:border-accent"
+            className="field"
           />
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-xl bg-accent px-5 py-3.5 text-[15px] font-medium text-white
-                       transition hover:bg-accent-soft disabled:opacity-40"
+            className="pill pill-primary w-full disabled:opacity-40"
           >
             {busy ? 'Sending…' : 'Email me a code'}
           </button>
@@ -130,17 +129,23 @@ function SignInForm() {
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="000000"
-            className="tabular w-full rounded-xl border border-line bg-panel px-4 py-3.5
-                       text-center text-[24px] tracking-[0.4em] outline-none transition
-                       placeholder:text-dim focus:border-accent"
+            className="field tabular text-center text-[24px] tracking-[0.4em]"
           />
           <button
             type="submit"
             disabled={busy || code.length < 6}
-            className="w-full rounded-xl bg-accent px-5 py-3.5 text-[15px] font-medium text-white
-                       transition hover:bg-accent-soft disabled:opacity-40"
+            className="pill pill-primary w-full disabled:opacity-40"
           >
             {busy ? 'Checking…' : 'Sign in'}
+          </button>
+          {/* Codes get lost in spam and junk; asking again is the same request. */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { setCode(''); setError(''); void requestCode({ preventDefault() {} } as React.FormEvent); }}
+            className="w-full py-2 text-[13.5px] text-dim transition hover:text-muted disabled:opacity-40"
+          >
+            Send a new code
           </button>
           <button
             type="button"
@@ -170,19 +175,18 @@ function SignInForm() {
         <Link href="/legal/terms" className="underline hover:text-muted">Terms</Link> and{' '}
         <Link href="/legal/privacy" className="underline hover:text-muted">Privacy Policy</Link>.
       </p>
-    </div>
+    </Plate3D>
   );
 }
 
 export default function SignInPage() {
   return (
     <>
-      <Nav />
-      <main id="main">
+      <PageShell className="max-w-md">
         <Suspense fallback={null}>
           <SignInForm />
         </Suspense>
-      </main>
+      </PageShell>
     </>
   );
 }

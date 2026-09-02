@@ -1,50 +1,41 @@
 import Link from 'next/link';
 import NavCta from '@/components/NavCta';
+import Wordmark from '@/components/Wordmark';
+import ScrollProgress from '@/components/fx/ScrollProgress';
 
-/** The wordmark. Deliberately not a logo file — one less request, and it scales. */
-function Mark() {
-  return (
-    <span className="flex items-center gap-2.5">
-      <span className="relative grid h-7 w-7 place-items-center rounded-[9px] bg-accent">
-        {/* A frame with its corner intact — "nothing lost" in one glyph. */}
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M2 5.5V2.8A.8.8 0 0 1 2.8 2h2.7M10.5 2h2.7a.8.8 0 0 1 .8.8v2.7M14 10.5v2.7a.8.8 0 0 1-.8.8h-2.7M5.5 14H2.8a.8.8 0 0 1-.8-.8v-2.7"
-            stroke="white"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-          />
-        </svg>
-      </span>
-      <span className="text-[15px] font-semibold tracking-[-0.01em]">Pristine</span>
-    </span>
-  );
-}
-
+/*
+ * The header, on every page.
+ *
+ * Sticky, translucent and blurred, so the starfield and the page slide under
+ * it. Its bottom edge is a faint iridescent hairline rather than a border —
+ * over a canvas a solid line reads as a shelf. The wordmark is the site's
+ * iridescent one (see Wordmark.tsx); the links are set as equipment labels
+ * with CSS (`.nav-link`), so their text is exactly what it always was.
+ *
+ * The scroll rail lives here: `backdrop-filter` makes this header the
+ * containing block for a fixed descendant, which pins the rail to the header's
+ * top edge — the viewport's top edge whenever the header is stuck.
+ */
 export default function Nav() {
   return (
-    <header className="sticky top-0 z-50 border-b border-line-soft bg-bg/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link href="/" className="transition hover:opacity-80" aria-label="Pristine home">
-          <Mark />
+    <header className="sticky top-0 z-50 bg-bg/55 backdrop-blur-xl">
+      <ScrollProgress />
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
+        <Link href="/" className="transition hover:opacity-90" aria-label="Pristine home">
+          <Wordmark />
         </Link>
 
         <nav className="flex items-center gap-1 sm:gap-2">
-          <Link
-            href="/#how"
-            className="hidden rounded-lg px-3 py-2 text-[14px] text-muted transition hover:text-text sm:block"
-          >
+          <Link href="/#how" className="nav-link hidden sm:inline-flex">
             How to use it
           </Link>
-          <Link
-            href="/#pricing"
-            className="hidden rounded-lg px-3 py-2 text-[14px] text-muted transition hover:text-text sm:block"
-          >
+          <Link href="/#pricing" className="nav-link hidden sm:inline-flex">
             Pricing
           </Link>
           <NavCta />
         </nav>
       </div>
+      <div aria-hidden className="iri-line opacity-25" />
     </header>
   );
 }

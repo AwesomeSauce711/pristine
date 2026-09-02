@@ -2,16 +2,25 @@
  * method-status.mts — flip the kill switch.
  *
  *   npm run method:status                        show the current state
- *   npm run method:status -- degraded "reason"   stop new sales, keep subscribers working
- *   npm run method:status -- broken "reason"     as above, and offer to pause all billing
- *   npm run method:status -- ok                  back to normal (and resume billing)
+ *   npm run method:status -- degraded "reason"   show the notice; selling and billing continue
+ *   npm run method:status -- broken "reason"     stop new sales; subscribers keep their plans
+ *   npm run method:status -- ok                  back to normal
+ *   npm run method:status -- pause-billing       stop invoicing every live subscription
+ *   npm run method:status -- resume-billing      start invoicing again
+ *
+ * WHY 'broken' DOES NOT TOUCH BILLING
+ * The Terms and the refund policy promise a fast fix, continued access that
+ * resumes on its own, and a credit of the time lost once an interruption has
+ * run past fourteen days. That is the deal customers agreed to, and it keeps
+ * the book intact for the fix: pausing everyone on the first bad day means
+ * re-selling every customer afterwards. So flipping the switch changes what is
+ * sold and what the site says, and nothing else. If a fix is genuinely not
+ * coming, 'pause-billing' is the deliberate second step.
  *
  * WHY PAUSE RATHER THAN CANCEL
  * `pause_collection` with behavior 'void' stops invoices being created without
- * ending anyone's subscription. Cancelling instead would destroy the book: every
- * customer would have to be re-sold, and the ones who would have waited a week
- * for a fix are gone. Pausing is reversible in one command; cancelling is not
- * reversible at all.
+ * ending anyone's subscription. Cancelling instead would destroy the book, and
+ * is not reversible at all. Pausing is reversible in one command.
  *
  * WHY THE STRIPE HALF IS INTERACTIVE
  * Pausing collection across the whole book is not something to do by accident,
@@ -36,7 +45,7 @@ async function show() {
   console.log(`\n  method status : ${status.toUpperCase()}`);
   if (row?.note) console.log(`  note          : ${row.note}`);
   if (row?.updatedAt) console.log(`  changed       : ${row.updatedAt.toISOString()}`);
-  console.log(`\n  selling is ${status === 'ok' ? 'OPEN' : 'PAUSED'}\n`);
+  console.log(`\n  selling is ${status === 'broken' ? 'PAUSED' : 'OPEN'}\n`);
 }
 
 async function confirm(question: string): Promise<boolean> {
@@ -105,6 +114,11 @@ if (!rawStatus) {
   process.exit(0);
 }
 
+if (rawStatus === 'pause-billing' || rawStatus === 'resume-billing') {
+  await setCollection(rawStatus === 'pause-billing');
+  process.exit(0);
+}
+
 if (!VALID.includes(rawStatus as MethodStatus)) {
   console.error(`\n  Unknown status "${rawStatus}". Use one of: ${VALID.join(', ')}\n`);
   process.exit(1);
@@ -122,11 +136,10 @@ await db().insert(schema.settings)
 
 console.log(`\n  method status set to ${status.toUpperCase()}`);
 if (note) console.log(`  note: ${note}`);
-console.log(status === 'ok'
-  ? '  new subscriptions are open again.'
-  : '  new subscriptions are now refused; existing customers keep working.');
-
-if (status === 'broken') await setCollection(true);
-if (status === 'ok') await setCollection(false);
+console.log(status === 'broken'
+  ? '  new subscriptions are now refused; existing subscriptions are left exactly as they are.'
+  : status === 'degraded'
+    ? '  the notice is up; selling and billing continue.'
+    : '  new subscriptions are open.');
 
 process.exit(0);

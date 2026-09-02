@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { play } from '@/lib/sound';
+import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
 
 /*
  * The before/after comparison.
@@ -19,6 +21,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *
  * Nothing loads until the component is on screen. Together the clips are ~8 MB,
  * which is far too much to put in front of someone who may never scroll to it.
+ *
+ * THE FRAME IS NOT HERE
+ * This is the screen: the two clips, the divider and its glass handle. The
+ * phone around it — bezel, ring, notch, and the `illustrative` legend for the
+ * engagement figures the stage floats above it — is Phone3D's, and the two
+ * measured-figure badges that used to sit in the screen's corners are the
+ * stage's Descriptor3D plates, carrying the same words. `wrapRef` stays on the
+ * screen itself, so the drag maths measure the picture and not the frame.
+ *
+ * Two optional props let the stage drive and read the split: `motionDrive`
+ * makes the divider follow the reader — the pointer's place across the whole
+ * page, or the roll of the phone in their hand — while nobody is dragging,
+ * and `onPositionChange` reports the split so the holograms can climb with
+ * it. Neither changes what the slider does on its own. Two sounds are added
+ * (src/lib/sound.ts): the chime when the split crosses to the Pristine side,
+ * and a tick for each keyboard step.
  */
 
 interface Props {
@@ -26,6 +44,15 @@ interface Props {
   afterSrc: string;
   beforePoster: string;
   afterPoster: string;
+  /** Called whenever the split moves, with the divider's position in percent. */
+  onPositionChange?: (pos: number) => void;
+  /**
+   * Follow the reader: with no drag in progress, the split eases toward
+   * `splitFor()` of the motion store's horizontal reading — the pointer across
+   * the whole viewport, or the gyroscope's roll — left widening the compressed
+   * side, right the Pristine side. Touch never drives it.
+   */
+  motionDrive?: boolean;
 }
 
 /*
@@ -38,10 +65,53 @@ interface Props {
  * the in-app preview there is no single source to draw both from. Correction is
  * the only option here.
  */
-/* Half a frame of the 30fps side — below this, nobody can tell. */
-const MAX_DRIFT_SEC = 0.017;
+/*
+ * Two frames at 60fps — below this the rate is left alone.
+ *
+ * THIS NUMBER CANNOT GO BELOW ONE FRAME, and it is worth saying why, because a
+ * tighter value looks more precise and is in fact the thing that makes the
+ * comparison stutter.
+ *
+ * `video.currentTime` does not advance smoothly. It reports the presentation
+ * time of the frame currently on screen, so it steps once per frame — 16.7ms at
+ * 60fps — and the two elements do not step on the same instant. So the drift
+ * MEASURED between two perfectly synchronised clips still swings by up to a
+ * full frame, purely from when each was sampled.
+ *
+ * Set the deadband under that and every sample looks like drift. The rate is
+ * then nudged on almost every animation frame, swinging either side of 1 at
+ * 60Hz, and the result is precisely the judder the correction exists to
+ * prevent — a previous value of 0.004 (a quarter of a frame) did exactly this.
+ * Two frames sits clearly above the sampling floor while staying under the
+ * threshold where an offset reads as lag rather than as a comparison.
+ */
+const MAX_DRIFT_SEC = 0.033;
 /* Past this, only a seek closes it: a loop wrap, a stall, or a buffering pause. */
-const RESEEK_SEC = 0.25;
+const RESEEK_SEC = 0.12;
+/*
+ * The rate nudge is proportional to how far the drift is PAST the deadband —
+ * not to the drift itself — and capped where motion would start to look wrong.
+ *
+ * Measuring from the deadband rather than from zero is what keeps the
+ * correction continuous. Scaled from zero, crossing the threshold would jump
+ * the rate straight to 0.95: a 5% step, applied the instant a measurement
+ * wobbles over the line, which is a visible hitch and a second source of the
+ * judder this whole mechanism exists to remove. Measured from the deadband, the
+ * correction starts at nothing and grows, so there is no step to see at the
+ * moment it engages.
+ */
+const RATE_GAIN = 1.5;
+const RATE_MAX = 0.08;
+
+/*
+ * The chime plays when the split crosses the midpoint toward Pristine, and
+ * re-arms only once it has come clearly back — the same hysteresis as the
+ * holograms' pop, so a pointer hovering on the line does not ring every frame.
+ * The numbers are the holograms' (t = 0.5 and 0.44) in the slider's own 2–98
+ * travel, so the chime, the pop and the lit plate are one moment.
+ */
+const REVEAL_AT = 52;
+const REVEAL_REARM_ABOVE = 58;
 
 /**
  * What to do about a given drift, as a pure decision.
@@ -57,11 +127,17 @@ const RESEEK_SEC = 0.25;
 export function correctionFor(drift: number): { seek: boolean; rate: number } {
   const mag = Math.abs(drift);
   if (mag > RESEEK_SEC) return { seek: true, rate: 1 };
-  if (mag > MAX_DRIFT_SEC) return { seek: false, rate: drift > 0 ? 0.98 : 1.02 };
+  if (mag > MAX_DRIFT_SEC) {
+    const excess = (mag - MAX_DRIFT_SEC) * Math.sign(drift);
+    const nudge = Math.max(-RATE_MAX, Math.min(RATE_MAX, excess * RATE_GAIN));
+    return { seek: false, rate: Math.round((1 - nudge) * 1000) / 1000 };
+  }
   return { seek: false, rate: 1 };
 }
 
-export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, afterPoster }: Props) {
+export default function CompareSlider({
+  beforeSrc, afterSrc, beforePoster, afterPoster, onPositionChange, motionDrive = false,
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const beforeRef = useRef<HTMLVideoElement>(null);
   const afterRef = useRef<HTMLVideoElement>(null);
@@ -75,6 +151,10 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
     const el = wrapRef.current;
     if (!el) return;
     if (typeof IntersectionObserver === 'undefined') {
+      /* No observer to wait for: show the clips now. The lint rule against a
+       * synchronous setState in an effect is about cascades; this is a
+       * one-time fallback on a browser that cannot observe, kept as it was. */
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVisible(true);
       return;
     }
@@ -139,31 +219,92 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
         if (fix.seek) b.currentTime = a.currentTime;
         // Otherwise nudge the rate. 2% is far below the ~5% at which a viewer
         // starts to notice motion running fast or slow.
-        if (b.playbackRate !== fix.rate) b.playbackRate = fix.rate;
+        if (Math.abs(b.playbackRate - fix.rate) > 0.0015) b.playbackRate = fix.rate;
       }
       raf = requestAnimationFrame(tick);
     };
 
-    a.addEventListener('canplay', startBoth);
-    b.addEventListener('canplay', startBoth);
+    /*
+     * On a phone one clip buffers before the other, and a rate nudge cannot
+     * close a gap that is still opening. So a stall on either side pauses
+     * both, and when the stalled one can play again they are put on the same
+     * frame and restarted in the same tick.
+     */
+    let holding = false;
+    const hold = () => {
+      if (!started || holding) return;
+      holding = true;
+      a.pause();
+      b.pause();
+    };
+    const release = () => {
+      if (!holding) return;
+      if (a.readyState < 3 || b.readyState < 3) return;
+      holding = false;
+      b.currentTime = a.currentTime;
+      void a.play().catch(() => {});
+      void b.play().catch(() => {});
+    };
+    for (const v of [a, b]) {
+      v.addEventListener('canplay', startBoth);
+      v.addEventListener('waiting', hold);
+      v.addEventListener('stalled', hold);
+      v.addEventListener('canplay', release);
+      v.addEventListener('canplaythrough', release);
+    }
     startBoth();
     raf = requestAnimationFrame(tick);
 
     return () => {
       cancelAnimationFrame(raf);
-      a.removeEventListener('canplay', startBoth);
-      b.removeEventListener('canplay', startBoth);
+      for (const v of [a, b]) {
+        v.removeEventListener('canplay', startBoth);
+        v.removeEventListener('waiting', hold);
+        v.removeEventListener('stalled', hold);
+        v.removeEventListener('canplay', release);
+        v.removeEventListener('canplaythrough', release);
+      }
       b.playbackRate = 1;
     };
   }, [visible]);
+
+  /*
+   * Every change to the split goes through here, and the parent hears about
+   * it in the same tick. It used to be reported from an effect on `pos`,
+   * which meant each frame of a drag or a motion-drive scheduled a second
+   * render from inside React's passive-effect flush — the exact pattern
+   * React's "maximum update depth" warning watches for, and it fired once
+   * the split had been moving for a while. Reporting synchronously batches
+   * the child's and the parent's updates into one render instead.
+   */
+  const posRef = useRef(pos);
+  const reportRef = useRef(onPositionChange);
+  useEffect(() => { reportRef.current = onPositionChange; }, [onPositionChange]);
+  /* The chime, once per crossing toward Pristine, played in the same tick as
+   * the crossing itself rather than from an effect after the paint — so it
+   * lands with the picture, not a frame behind it. Armed from the start: the
+   * first reveal is the one that matters. */
+  const revealArmed = useRef(true);
+  const commitPos = useCallback((next: number) => {
+    posRef.current = next;
+    setPos(next);
+    reportRef.current?.(next);
+    if (next > REVEAL_REARM_ABOVE) revealArmed.current = true;
+    else if (revealArmed.current && next <= REVEAL_AT) {
+      revealArmed.current = false;
+      play('reveal');
+    }
+  }, []);
+  /* The starting split, once, so a parent that renders from it is not stale. */
+  useEffect(() => { reportRef.current?.(posRef.current); }, []);
 
   const setFromClientX = useCallback((clientX: number) => {
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const pct = ((clientX - r.left) / r.width) * 100;
-    setPos(Math.min(98, Math.max(2, pct)));
-  }, []);
+    commitPos(Math.min(100, Math.max(0, pct)));
+  }, [commitPos]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -182,12 +323,76 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
     };
   }, [dragging, setFromClientX]);
 
+  /*
+   * Follow the reader.
+   *
+   * Eased rather than snapped — about 12% of the remaining distance a frame —
+   * so a hand crossing the page moves the divider like a slow wipe instead of
+   * a flicker. The reading comes from the motion store (src/lib/stage-motion):
+   * the pointer measured across the whole viewport on a desktop, so the split
+   * keeps moving right to the edge of the page; the roll of the phone on a
+   * phone. A drag or a keyboard step wins while it is happening: the
+   * subscription is re-made with `dragging`, and a drag in progress ignores
+   * the store entirely. Touch never drives it — the store ignores touch
+   * pointers, and a finger on the stage is scrolling. The reading the store
+   * replays on subscribing is skipped, so a drag that has just ended holds
+   * where it was left until the reader moves again. `posRef` tracks the split
+   * between React commits so consecutive frames do not read a stale value.
+   */
+  useEffect(() => {
+    if (!motionDrive || dragging) return;
+    let raf = 0;
+    let target: number | null = null;
+    let replay = true;
+
+    const step = () => {
+      raf = 0;
+      if (target === null) return;
+      const p = posRef.current;
+      const next = Math.abs(target - p) < 0.06 ? target : p + (target - p) * 0.12;
+      commitPos(next);
+      if (next !== target) raf = requestAnimationFrame(step);
+    };
+    /* A pointer: the divider goes where the pointer is, measured across the
+     * screen itself, so the whole travel is one edge of the phone to the
+     * other — exactly as a drag would put it — and past either edge the
+     * split simply holds at that end with one whole video showing. A
+     * gyroscope: the phone's roll over the same travel. */
+    const targetFor = (m: Motion) => {
+      const el = wrapRef.current;
+      if (m.source === 'pointer' && el) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) {
+          const clientX = ((m.x + 1) / 2) * window.innerWidth;
+          return Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100));
+        }
+      }
+      return splitFor(m.x);
+    };
+    const unsubscribe = subscribeMotion((m) => {
+      if (replay) {
+        replay = false;
+        return;
+      }
+      if (m.source === 'none') return;
+      target = targetFor(m);
+      if (!raf) raf = requestAnimationFrame(step);
+    });
+
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(raf);
+    };
+  }, [motionDrive, dragging, commitPos]);
+
   const onKey = (e: React.KeyboardEvent) => {
     const step = e.shiftKey ? 10 : 3;
-    if (e.key === 'ArrowLeft') { setPos((p) => Math.max(2, p - step)); e.preventDefault(); }
-    if (e.key === 'ArrowRight') { setPos((p) => Math.min(98, p + step)); e.preventDefault(); }
-    if (e.key === 'Home') { setPos(2); e.preventDefault(); }
-    if (e.key === 'End') { setPos(98); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { commitPos(Math.max(0, posRef.current - step)); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { commitPos(Math.min(100, posRef.current + step)); e.preventDefault(); }
+    if (e.key === 'Home') { commitPos(0); e.preventDefault(); }
+    if (e.key === 'End') { commitPos(100); e.preventDefault(); }
+    /* A tick for each step; the steps themselves are as they were. */
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') play('tick');
   };
 
   /*
@@ -216,15 +421,20 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
 
   return (
     <figure className="w-full">
+      {/* The screen. `wrapRef` is the picture, so the drag maths measure it and
+          not the frame Phone3D draws around it. `touch-action: pan-y` rather
+          than `none`: a finger can still scroll the page over the phone, which
+          on a phone is most of the viewport, and a sideways drag still moves
+          the divider. The handle itself is `touch-none`, so a drag that starts
+          on it is never taken for a scroll. */}
       <div
         ref={wrapRef}
         onPointerDown={(e) => {
           setDragging(true);
           setFromClientX(e.clientX);
         }}
-        className="relative aspect-[9/16] w-full max-w-[380px] mx-auto overflow-hidden rounded-[20px]
-                   border border-line bg-panel select-none touch-none
-                   shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9)]"
+        className="relative aspect-[9/16] w-full overflow-hidden rounded-[38px]
+                   bg-panel select-none touch-pan-y"
       >
         {/* BEFORE — what TikTok does to an ordinary upload. */}
         {visible ? (
@@ -251,31 +461,18 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
           )}
         </div>
 
-        {/* Corner badges. Figures are the delivered ones, not the uploaded ones. */}
+        {/* The divider: a hairline that goes out at either end, so a split
+            pushed all the way shows one whole video with no line on it; and
+            the handle, which stays on the screen at both ends so it can
+            always be taken hold of and dragged back. */}
         <div
-          className="absolute left-3 top-3 z-20 rounded-lg border border-white/10 bg-black/65
-                     px-2.5 py-1.5 backdrop-blur-sm transition-opacity"
-          style={{ opacity: pos > 22 ? 1 : 0 }}
-        >
-          <div className="legend text-[9px] text-white/45">Uploaded normally</div>
-          <div className="tabular text-[11px] font-medium text-white/90">720×1280 · 30fps</div>
-          <div className="tabular text-[10px] text-white/50">2.90 Mbps</div>
-        </div>
-
+          className="pointer-events-none absolute inset-y-0 z-30 w-px bg-white/85
+                     shadow-[0_0_12px_rgba(255,255,255,0.55)] transition-opacity duration-150"
+          style={{ left: `${pos}%`, opacity: pos < 0.75 || pos > 99.25 ? 0 : 1 }}
+        />
         <div
-          className="absolute right-3 top-3 z-20 rounded-lg border border-accent/30 bg-black/65
-                     px-2.5 py-1.5 backdrop-blur-sm transition-opacity"
-          style={{ opacity: pos < 78 ? 1 : 0 }}
-        >
-          <div className="legend text-[9px] text-accent-soft">With Pristine</div>
-          <div className="tabular text-[11px] font-medium text-white/90">2160×3840 · 60fps</div>
-          <div className="tabular text-[10px] text-white/50">41.72 Mbps</div>
-        </div>
-
-        {/* The divider. */}
-        <div
-          className="pointer-events-none absolute inset-y-0 z-30 w-px bg-white/85"
-          style={{ left: `${pos}%` }}
+          className="pointer-events-none absolute inset-y-0 z-30 w-0"
+          style={{ left: `clamp(24px, ${pos}%, calc(100% - 24px))` }}
         >
           <div
             role="slider"
@@ -285,9 +482,10 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
             aria-valuemax={100}
             aria-valuenow={Math.round(pos)}
             onKeyDown={onKey}
-            className="pointer-events-auto absolute top-1/2 left-1/2 grid h-11 w-11 -translate-x-1/2
-                       -translate-y-1/2 place-items-center rounded-full border border-white/25
-                       bg-black/70 backdrop-blur-sm cursor-ew-resize
+            className="pointer-events-auto touch-none absolute top-1/2 left-1/2 grid h-11 w-11 -translate-x-1/2
+                       -translate-y-1/2 place-items-center rounded-full border border-white/30
+                       bg-white/15 cursor-ew-resize
+                       shadow-[0_10px_30px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.3)]
                        focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg width="20" height="14" viewBox="0 0 20 14" fill="none" aria-hidden="true">
@@ -298,7 +496,7 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforePoster, after
         </div>
       </div>
 
-      <figcaption className="mx-auto mt-4 max-w-[520px] text-center text-[12.5px] leading-relaxed text-dim">
+      <figcaption className="mx-auto mt-9 max-w-[520px] text-center text-[12.5px] leading-relaxed text-dim">
         Both clips are exactly what TikTok served back — same footage, same account, uploaded
         minutes apart. Re-encoded here at identical settings for web playback, so the only
         difference is what TikTok did to each.

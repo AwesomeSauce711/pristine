@@ -7,22 +7,27 @@ import { db, schema } from '@/db';
  * method-status.ts — the kill switch.
  *
  * WHY THIS EXISTS
- * The product works because of how TikTok's ingest prices its own work. TikTok
- * can change that whenever they like, with no notice, and the first sign will be
- * customers reporting compressed uploads. Everything after that is a race: every
- * hour spent still billing for a broken product is refunds you will pay anyway
- * plus disputes you cannot avoid, and Stripe acts on accounts above roughly
- * 0.75% disputes. So the ability to stop selling has to be faster than a deploy.
+ * The product works because of how TikTok processes uploads. TikTok can change
+ * that whenever they like, with no notice, and the first sign will be customers
+ * reporting compressed uploads. Selling a subscription to something that is
+ * confirmed not to work is what turns into refunds and disputes (Stripe acts on
+ * accounts above roughly 0.75% disputes), so the ability to stop selling has to
+ * be faster than a deploy.
  *
  * THE THREE STATES, AND WHY THE MIDDLE ONE EXISTS
  *   ok        Normal.
  *   degraded  Something is wrong but not proven broken — one report, an
- *             unconfirmed change, a canary that failed once. Stop taking NEW
- *             money, keep existing subscribers working, say so on the site.
- *             This is the state you want to be able to reach on a hunch, which
- *             is why it costs existing customers nothing.
- *   broken    Confirmed not working. Same as degraded, plus billing should be
- *             paused across the book — see scripts/method-status.mts.
+ *             unconfirmed change, a canary that failed once. Say so on the
+ *             site; keep selling and keep everyone working. A hunch should
+ *             cost nothing, which is why this state changes nothing but the
+ *             banner.
+ *   broken    Confirmed not working. Stop taking NEW money and say so; the
+ *             book is left exactly as it is. Subscriptions are never paused or
+ *             cancelled by the switch: the Terms promise a fast fix, continued
+ *             access that resumes on its own, and a credit of time lost past
+ *             fourteen days. Pausing collection is a separate, deliberate
+ *             command in scripts/method-status.mts for the case where a fix is
+ *             not coming.
  *
  * WHY IT NEVER FAILS CLOSED
  * A database blip must not take the shop offline. If the flag cannot be read the
@@ -51,8 +56,7 @@ const OK: MethodState = { status: 'ok', note: null };
  * enough that the query disappears from the profile.
  *
  * Per-instance, so on serverless the worst case is one stale instance for thirty
- * seconds. Acceptable for stopping sales; it is why `broken` also pauses
- * collection in Stripe rather than relying on this alone.
+ * seconds, which is acceptable for stopping sales.
  */
 let cache: { at: number; state: MethodState } | null = null;
 const TTL_MS = 30_000;
@@ -79,9 +83,9 @@ export async function methodStatus(): Promise<MethodState> {
   }
 }
 
-/** Whether new subscriptions may be sold right now. */
+/** Whether new subscriptions may be sold right now: only a confirmed break closes the shop. */
 export async function sellingIsOpen(): Promise<boolean> {
-  return (await methodStatus()).status === 'ok';
+  return (await methodStatus()).status !== 'broken';
 }
 
 /** Drop the cache, so a change made by the script is visible immediately. */

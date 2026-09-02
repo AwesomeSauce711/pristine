@@ -73,8 +73,11 @@ export default function PricingTable() {
 
   return (
     <>
-      <div className="grid gap-5 md:grid-cols-3">
-        {PLAN_ORDER.map((id) => {
+      {/* Three across at every width. On a phone the cards are compact —
+        * name, price, the one number that differs, the button — so all three
+        * are on screen at once without a scroll; the full cards return at md. */}
+      <div className="grid grid-cols-3 gap-2 md:gap-5">
+        {PLAN_ORDER.map((id, i) => {
           const p = PLANS[id];
           const featured = p.id === 'month';
           const cta = p.trialDays > 0 ? `Start ${p.trialDays}-day free trial` : 'Get started';
@@ -83,30 +86,57 @@ export default function PricingTable() {
             <div
               key={p.id}
               className={[
-                'relative flex flex-col rounded-panel border p-7 transition',
+                'plate plate-face tier-card pricing-rise relative flex flex-col rounded-panel p-3 pt-4 md:p-7 transition',
+                `tier-${p.id}`,
                 featured
-                  ? 'border-accent/45 bg-panel shadow-[0_0_0_1px_rgba(124,92,255,0.12),0_24px_60px_-32px_rgba(124,92,255,0.5)]'
-                  : 'border-line bg-panel/60 hover:border-dim',
+                  ? 'plate-glow glow-iri'
+                  : '',
               ].join(' ')}
+              /* Rise in one after another; the price pops a beat later (CSS). */
+              style={{ '--rise-delay': `${i * 110}ms` } as React.CSSProperties}
             >
+              {/* A soft aura breathing behind the two paid-for-a-while plans. */}
+              {p.id !== 'week' && <span aria-hidden="true" className="tier-aura" />}
+              {/*
+                * The card's living background: orbs, a sweep of light and, on
+                * the annual plan, rising sparks — transform-only, clipped to
+                * the corners, painted under the content (see globals.css).
+                */}
+              <span aria-hidden="true" className="tier-fx">
+                <span className="tier-orb" />
+                {p.id !== 'week' && <span className="tier-orb" />}
+                {p.id !== 'week' && <span className="tier-sweep" />}
+                {p.id === 'year' &&
+                  [0, 1, 2, 3, 4, 5].map((i) => (
+                    <span
+                      key={i}
+                      className="tier-spark"
+                      style={{
+                        left: `${12 + i * 15}%`,
+                        color: i % 2 ? '#4ef0ff' : '#ff6ad5',
+                        animationDelay: `${(i * 0.7).toFixed(1)}s`,
+                      }}
+                    />
+                  ))}
+              </span>
               {p.badge && (
                 <span
                   className={[
-                    'absolute -top-2.5 left-7 rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em]',
-                    featured ? 'bg-accent text-white' : 'border border-line bg-panel-2 text-muted',
+                    'absolute -top-2.5 left-3 rounded-full px-2 py-0.5 text-[8px] font-medium uppercase tracking-[0.1em] md:left-7 md:px-2.5 md:py-1 md:text-[10px]',
+                    featured ? 'badge-iri font-semibold' : 'border border-line bg-panel-2 text-muted',
                   ].join(' ')}
                 >
                   {p.badge}
                 </span>
               )}
 
-              <h3 className="text-[15px] font-medium">{p.name}</h3>
+              <h3 className="text-[12px] font-medium md:text-[15px]">{p.name}</h3>
 
-              <div className="mt-4 flex items-baseline gap-1.5">
-                <span className="tabular text-[2.5rem] font-medium leading-none tracking-tight">
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 md:mt-4">
+                <span className="price-pop tabular text-[1.45rem] font-medium leading-none tracking-tight md:text-[2.5rem]">
                   {money(p.amount)}
                 </span>
-                <span className="text-[14px] text-dim">/{p.interval}</span>
+                <span className="text-[11px] text-dim md:text-[14px]">/{p.interval}</span>
               </div>
 
               {p.id === 'year' && (
@@ -115,7 +145,7 @@ export default function PricingTable() {
                 </p>
               )}
 
-              <p className="mt-4 text-[13.5px] leading-relaxed text-muted">{p.blurb}</p>
+              <p className="mt-4 hidden text-[13.5px] leading-relaxed text-muted md:block">{p.blurb}</p>
 
               {/*
                 * The one number that differs between plans, given the weight that
@@ -131,23 +161,23 @@ export default function PricingTable() {
                 * then animated. It is the only thing that actually differs
                 * between the tiers, so it is the only thing that escalates.
                 */}
-              <div className="mt-6 flex items-baseline gap-2">
+              <div className="mt-3 flex items-baseline gap-1.5 md:mt-6 md:gap-2">
                 <span
                   className={[
                     'tabular font-semibold leading-none tracking-[-0.03em]',
-                    p.id === 'year' ? 'rainbow-number text-[2.9rem]'
-                      : p.id === 'month' ? 'text-accent-soft text-[2.5rem]'
-                      : 'text-text text-[2.1rem]',
+                    p.id === 'year' ? 'rainbow-number text-[1.7rem] md:text-[2.9rem]'
+                      : p.id === 'month' ? 'text-accent-soft text-[1.5rem] md:text-[2.5rem]'
+                      : 'text-text text-[1.3rem] md:text-[2.1rem]',
                   ].join(' ')}
                 >
                   {p.dailyPatchCap}
                 </span>
-                <span className="text-[13.5px] leading-tight text-muted">
+                <span className="text-[10px] leading-tight text-muted md:text-[13.5px]">
                   {p.dailyPatchCap === 1 ? 'video' : 'videos'}<br />per day
                 </span>
               </div>
 
-              <ul className="mt-6 space-y-2.5 text-[13.5px] text-muted">
+              <ul className="mt-6 mb-7 hidden space-y-2.5 text-[13.5px] text-muted md:block">
                 <li className="flex gap-2.5"><Tick /> Full quality, never re-encoded</li>
                 <li className="flex gap-2.5"><Tick /> Up to 4K and 60fps</li>
                 <li className="flex gap-2.5"><Tick /> Your video never leaves your device</li>
@@ -156,21 +186,24 @@ export default function PricingTable() {
                 </li>
               </ul>
 
-              <div className="mt-7 border-t border-line-soft pt-6">
+              <div className="mt-4 border-t border-line-soft pt-3 md:mt-auto md:pt-6">
                 <button
                   onClick={() => start(p.id)}
                   disabled={busy !== null}
                   className={[
-                    'block w-full rounded-xl px-5 py-3 text-center text-[14px] font-medium transition',
+                    'pill w-full disabled:opacity-60 max-md:min-h-9 max-md:px-2 max-md:text-[10px]',
                     featured
-                      ? 'bg-accent text-white hover:bg-accent-soft'
-                      : 'border border-line text-text hover:border-dim',
+                      ? 'pill-primary'
+                      : 'pill-ghost',
                   ].join(' ')}
                 >
-                  {busy === p.id ? 'Opening secure checkout…' : cta}
+                  <span className="md:hidden">{busy === p.id ? 'Opening…' : p.trialDays > 0 ? 'Start trial' : 'Start'}</span>
+                  <span className="hidden md:inline">{busy === p.id ? 'Opening secure checkout…' : cta}</span>
                 </button>
 
-                <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim">
+                {/* Two lines tall on every card, so the buttons above them line up:
+                    the weekly note wraps to two lines, the others to one. */}
+                <p className="mt-3 hidden min-h-[2.6rem] text-center text-[11.5px] leading-relaxed text-dim md:block">
                   {p.trialDays > 0
                     ? <>Then {money(p.amount)}/{p.interval}. Cancel any time.</>
                     : <>Billed {money(p.amount)} weekly. No trial on this plan. Cancel any time.</>}
@@ -180,6 +213,14 @@ export default function PricingTable() {
           );
         })}
       </div>
+
+      {/* What every plan shares, once, under the compact cards. */}
+      <ul className="mx-auto mt-5 grid max-w-md grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] text-muted md:hidden">
+        <li className="flex gap-2"><Tick /> Never re-encoded</li>
+        <li className="flex gap-2"><Tick /> Up to 4K and 60fps</li>
+        <li className="flex gap-2"><Tick /> Never leaves your device</li>
+        <li className="flex gap-2"><Tick /> Free trial on monthly and annual</li>
+      </ul>
 
       {error && (
         <p className="mx-auto mt-6 max-w-md rounded-lg border border-bad/30 bg-bad/5 px-4 py-3 text-center text-[13px] text-text">

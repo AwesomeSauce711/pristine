@@ -40,13 +40,13 @@ export default function Error({
       <div className="mt-9 flex flex-wrap justify-center gap-3">
         <button
           onClick={reset}
-          className="rounded-xl bg-accent px-6 py-3 text-[14px] font-medium text-white transition hover:bg-accent-soft"
+          className="pill pill-primary"
         >
           Try again
         </button>
         <Link
           href="/"
-          className="rounded-xl border border-line px-6 py-3 text-[14px] text-muted transition hover:border-dim hover:text-text"
+          className="pill pill-ghost"
         >
           Back home
         </Link>

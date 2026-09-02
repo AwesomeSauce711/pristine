@@ -204,7 +204,7 @@ function clamp(s: string): string {
 }
 
 const PRODUCT_DESCRIPTION =
-  `${COMPANY.tradingName} is a subscription web tool that modifies the metadata of a video file `
+  `${COMPANY.tradingName} is a subscription web tool that prepares a version of a video file `
   + 'the customer already has, so that when they upload it themselves it is not re-compressed. '
   + 'The video is processed in the customer\'s own browser and is never uploaded to us. Access is '
   + 'immediate on subscribing and the service is used through a web browser with no download or '

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import Nav from '@/components/Nav';
+import PageShell from '@/components/PageShell';
 import { COMPANY, LEGAL_UPDATED, missingCompanyDetails } from '@/lib/company';
 
 /*
@@ -16,8 +16,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
 
   return (
     <>
-      <Nav />
-      <main id="main" className="mx-auto max-w-3xl px-6 py-16">
+      <PageShell className="max-w-3xl">
         {missing.length > 0 && (
           <div className="mb-10 rounded-panel border border-bad/40 bg-bad/5 px-6 py-5">
             <p className="text-[14px] font-medium text-bad">
@@ -55,7 +54,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
           {COMPANY.address !== 'TO BE COMPLETED' && <> · {COMPANY.address}</>}
           {' · '}Last updated: {LEGAL_UPDATED}
         </p>
-      </main>
+      </PageShell>
     </>
   );
 }

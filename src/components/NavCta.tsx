@@ -37,11 +37,17 @@ export default function NavCta() {
   }, []);
 
   const classes =
-    'ml-1 rounded-lg bg-accent px-4 py-2 text-[14px] font-medium text-white transition ' +
-    'hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft';
+    'ml-1 pill pill-primary pill-sm';
 
   if (signedIn) {
     return <Link href="/account" className={classes}>Account</Link>;
   }
-  return <Link href="/app" className={classes}>Try free</Link>;
+  /* A subscriber on a new device needs a door too; it is small, and it
+   * disappears once they are through it. */
+  return (
+    <>
+      <Link href="/sign-in" className="nav-link hidden sm:inline-flex">Sign in</Link>
+      <Link href="/app" className={classes}>Try free</Link>
+    </>
+  );
 }

@@ -49,6 +49,49 @@ export function priceIdForPlan(id: PlanId): string {
   return value;
 }
 
+/*
+ * The price Stripe will actually charge has to be the price the site, the
+ * Terms and the consent record all state. They are set in different places —
+ * the amount in src/lib/plans.ts, the Price object in Stripe's dashboard, the
+ * id in an env var — and nothing else ties them together. A mismatch means
+ * a customer is charged an amount they were never shown, which is a refund,
+ * a dispute and a regulatory problem in one. So before a checkout session is
+ * created the Price is fetched and compared, and a mismatch refuses the sale
+ * with a clear message rather than taking the wrong money. Checked once per
+ * process every ten minutes; a Price cannot change amount, only be replaced.
+ */
+export class PriceMismatchError extends Error {
+  constructor(public readonly plan: PlanId, detail: string) {
+    super(`Stripe Price for the ${plan} plan does not match the site: ${detail}`);
+    this.name = 'PriceMismatchError';
+  }
+}
+
+const PRICE_CHECK_TTL_MS = 10 * 60_000;
+const priceChecked = new Map<string, number>();
+
+export async function verifiedPriceIdForPlan(id: PlanId): Promise<string> {
+  const priceId = priceIdForPlan(id);
+  const at = priceChecked.get(priceId);
+  if (at && Date.now() - at < PRICE_CHECK_TTL_MS) return priceId;
+
+  const plan = PLANS[id];
+  const price = await stripe().prices.retrieve(priceId);
+  const problems: string[] = [];
+  if (!price.active) problems.push('the Price is archived');
+  if (price.unit_amount !== plan.amount) {
+    problems.push(`Stripe charges ${(price.unit_amount ?? 0) / 100} and the site says ${plan.amount / 100}`);
+  }
+  if (price.currency !== 'usd') problems.push(`currency is ${price.currency}, not usd`);
+  if (price.recurring?.interval !== plan.interval) {
+    problems.push(`interval is ${price.recurring?.interval ?? 'one-off'}, not ${plan.interval}`);
+  }
+  if (problems.length) throw new PriceMismatchError(id, problems.join('; '));
+
+  priceChecked.set(priceId, Date.now());
+  return priceId;
+}
+
 const secs = (v: number | null | undefined): Date | null =>
   typeof v === 'number' ? new Date(v * 1000) : null;
 

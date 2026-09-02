@@ -98,8 +98,20 @@ export function proxy(request: NextRequest) {
      * see the long note at the top for why that trade was made rather than
      * stumbled into. Development also needs 'unsafe-eval', which React uses to
      * reconstruct server stacks; production does not get it.
+     *
+     * 'wasm-unsafe-eval' allows WebAssembly to be compiled — and only that; it
+     * does not permit JavaScript eval. The Draco mesh decoder that unpacks the
+     * hand model on the landing page (/draco/, served from this origin) is
+     * WebAssembly, and without this it cannot instantiate.
      */
-    `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ''}`,
+    /*
+     * The Draco decoder runs in a Web Worker built from a blob: URL (three.js
+     * assembles the worker's source from the decoder script it fetched from
+     * this origin). Without a worker-src, workers fall back to script-src,
+     * which does not allow blob:.
+     */
+    "worker-src 'self' blob:",
     /* React sets inline styles for the comparison slider and the reveal
      * animations, and there is no nonce path for a `style` attribute. */
     "style-src 'self' 'unsafe-inline'",

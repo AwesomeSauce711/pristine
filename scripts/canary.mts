@@ -76,9 +76,9 @@ if (confirmIdx !== -1) {
   if (note) console.log(`  note: ${note}`);
   console.log(status === 'ok'
     ? '  Selling stays open.\n'
-    : '  Selling is now PAUSED. Existing subscribers keep working.\n'
-      + '  If this is confirmed broken, also stop billing:\n'
-      + '    npm run method:status -- broken "TikTok changed their ingest."\n');
+    : '  The notice is up; selling and billing continue.\n'
+      + '  If this is confirmed broken, stop new sales (subscribers keep their plans):\n'
+      + '    npm run method:status -- broken "TikTok changed how uploads are processed."\n');
   process.exit(0);
 }
 

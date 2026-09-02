@@ -23,7 +23,15 @@ import { emailConfigured, sendLoginCode } from '@/lib/email';
  */
 
 const COOKIE = '__Host-pristine_session';
-const SESSION_DAYS = 30;
+/*
+ * Six months. There is no password, so the code in the inbox IS the sign-in,
+ * and a session that lapsed every month would have a paying customer fetching
+ * a code twelve times a year to use what they pay for. Six months on a
+ * device is long enough that a subscriber effectively never sees the sign-in
+ * page again; revocation (dispute, sign-out) is still immediate because the
+ * session is a row, not a token — see the note at the top.
+ */
+const SESSION_DAYS = 180;
 const CODE_TTL_MINUTES = 10;
 const MAX_CODE_ATTEMPTS = 5;
 

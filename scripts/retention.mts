@@ -2,7 +2,7 @@
  * retention.mts — delete what we said we would delete.
  *
  * The privacy policy states "Usage records are kept for 12 months" and
- * "Sessions expire after 30 days". Both were true as intentions and false as
+ * "Signed-in sessions last six months". Both were true as intentions and false as
  * facts: nothing deleted a patch_jobs row, ever, and expired sessions stayed in
  * the table indefinitely.
  *
@@ -21,7 +21,7 @@ const confirmed = process.argv.includes('--yes');
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000);
 
 const USAGE_DAYS = 365;    // "Usage records are kept for 12 months"
-const SESSION_DAYS = 90;   // expire at 30; kept a little longer for abuse review
+const SESSION_DAYS = 90;   // expire at 180 (src/lib/auth.ts); kept 90 more for abuse review
 const TOKEN_DAYS = 30;     // sign-in codes are useless within minutes
 
 const oldJobs = await db().select().from(schema.patchJobs)

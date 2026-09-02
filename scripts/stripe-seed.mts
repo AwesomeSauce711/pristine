@@ -64,10 +64,31 @@ for (const id of PLAN_ORDER) {
     // Never silently reprice an existing Price — subscribers are on it.
     const matches = price.unit_amount === plan.amount
       && price.recurring?.interval === plan.interval;
-    console.log(
-      `  ${id.padEnd(6)}    ${price.id}  (existing)` +
-      (matches ? '' : `  ** MISMATCH: Stripe has ${money(price.unit_amount ?? 0)}/${price.recurring?.interval}, code says ${money(plan.amount)}/${plan.interval} **`),
-    );
+    if (matches) {
+      console.log(`  ${id.padEnd(6)}    ${price.id}  (existing)`);
+    } else {
+      /*
+       * The Price in Stripe says one amount and the code says another. A
+       * Price's amount cannot be edited, and subscribers already on the old
+       * one must stay on it, so a NEW Price is created at the code's amount
+       * and the lookup key moves to it (transfer_lookup_key). The checkout
+       * refuses to sell while the env var still points at the old one, so
+       * the printed env lines below are not optional.
+       */
+      console.log(
+        `  ${id.padEnd(6)}    ${price.id}  MISMATCH: Stripe has ${money(price.unit_amount ?? 0)}/${price.recurring?.interval}, code says ${money(plan.amount)}/${plan.interval}`,
+      );
+      price = await stripe.prices.create({
+        product: product.id,
+        lookup_key: lookupKey,
+        transfer_lookup_key: true,
+        unit_amount: plan.amount,
+        currency: 'usd',
+        recurring: { interval: plan.interval },
+        metadata: { tier: id },
+      });
+      console.log(`  ${id.padEnd(6)}    ${price.id}  (created ${money(plan.amount)}/${plan.interval} — replaces the old Price for new sales)`);
+    }
   } else {
     price = await stripe.prices.create({
       product: product.id,

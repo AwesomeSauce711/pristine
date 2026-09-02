@@ -5,7 +5,7 @@ import { PLANS, money } from '@/lib/plans';
 export const metadata: Metadata = { title: 'Refund Policy' };
 
 /*
- * DRAFT. Reviewed by no lawyer.
+ * Reviewed by no lawyer.
  *
  * The generous first-charge refund is a commercial decision, not kindness. A
  * disputed charge costs the $15 dispute fee whether or not it is won, plus a
@@ -16,6 +16,13 @@ export const metadata: Metadata = { title: 'Refund Policy' };
  * Saying so plainly on the page also removes the reason to file a dispute in
  * the first place: people go to their bank when they believe the merchant will
  * not help.
+ *
+ * WHEN THE METHOD BREAKS
+ * Subscriptions are not stopped and nothing is refunded unasked. The promise is
+ * a fast fix, continued access so it resumes on its own, a credit of the time
+ * lost once an interruption has run past fourteen days, and a refund of the
+ * current period on request from that point. That is enough to keep a bank or
+ * Stripe on our side of a dispute, and it keeps the book intact for the fix.
  */
 export default function Refunds() {
   return (
@@ -23,36 +30,50 @@ export default function Refunds() {
       <h1>Refund Policy</h1>
 
       <p>
-        Short version: if it did not work for you, tell us and we will refund you. We would much
-        rather do that than have you argue with your bank.
+        Short version: if it did not work for you, tell us and we will put it right — and where
+        we cannot, we will refund you. We would much rather do that than have you argue with your
+        bank.
       </p>
 
       <h2>Your first charge</h2>
       <p>
         If you are unhappy for any reason, email us within <strong>72 hours</strong> of your first
-        charge and we will refund it in full. You do not need to justify it.
+        charge and we will refund it in full. You do not need to justify it. This includes the
+        first charge after a free trial, so a forgotten trial is never a lost week or month.
       </p>
 
-      <h2>If it does not work</h2>
+      <h2>If it does not work for your file</h2>
       <p>
-        If the service fails to do what it says — the patched file is rejected, or the platform
-        re-encodes it anyway — we will refund the current period, whenever that happens. Send us
-        the file name and roughly when you tried; we can usually see what went wrong from our
-        records.
+        If the service fails to do what it says for a file — the finished file is rejected, or the
+        platform re-encodes it anyway — send us the file name and roughly when you tried; we can
+        usually see what went wrong from our records and fix it. If we cannot make it work for you
+        within a few days, we will refund the current period.
       </p>
 
-      <h2>If the method stops working</h2>
+      <h2>If a platform change stops it working</h2>
       <p>
         The service depends on how a third-party platform processes uploads, which is outside our
-        control. If that changes and the service stops working, we will{' '}
-        <strong>stop billing everyone and refund the current period</strong> without waiting to be
-        asked. We will not keep charging a subscription for something that has stopped working.
+        control. If that changes and the service stops having its intended effect, we tell every
+        subscriber at once and getting it back up and running becomes our first priority. Your
+        subscription and your access continue in the meantime, so the service resumes for you
+        automatically the moment it is restored.
       </p>
+      <ul>
+        <li>If the service is unavailable for more than <strong>14 consecutive days</strong>, we
+          add the time lost beyond that to your current period at no charge — automatically, you
+          do not need to ask.</li>
+        <li>From that point you may instead ask for a <strong>refund of the current period</strong>,
+          and we will give it.</li>
+        <li>If we conclude that the service cannot be restored, we end all subscriptions ourselves
+          and refund any unused time on a pro-rata basis, without waiting to be asked.</li>
+        <li>You can cancel at any time regardless, from Account → Billing, and keep access until
+          the end of the period you have paid for.</li>
+      </ul>
 
       <h2>Renewals</h2>
       <p>
-        Renewals are refundable within <strong>7 days</strong> if you have not used any patches in
-        that period. If you have used it, cancel instead — you keep access until the end of the
+        Renewals are refundable within <strong>7 days</strong> if you have not downloaded any files
+        in that period. If you have used it, cancel instead — you keep access until the end of the
         period you paid for, and you will not be charged again.
       </p>
       <p>
@@ -65,6 +86,13 @@ export default function Refunds() {
         The {PLANS.week.name} plan is {money(PLANS.week.amount)} and renews every week. It has no
         free trial, and it is the plan most likely to be forgotten about, so the 72-hour refund
         above applies to it in full.
+      </p>
+
+      <h2>What is not refunded</h2>
+      <p>
+        Time you have already had access to, outside the cases above; periods after a cancellation
+        has taken effect; and charges on an account closed for a breach of our terms. Where a
+        refund is due, we refund the charge in full — we never deduct a fee.
       </p>
 
       <h2>How to ask</h2>

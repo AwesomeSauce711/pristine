@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
-import Nav from '@/components/Nav';
+import PageShell from '@/components/PageShell';
 import BillingActions from '@/components/BillingActions';
 import { db, schema } from '@/db';
 import { currentUser } from '@/lib/auth';
@@ -40,12 +40,11 @@ export default async function AccountPage() {
 
   return (
     <>
-      <Nav />
-      <main id="main" className="mx-auto max-w-3xl px-6 py-16">
-        <h1 className="text-[1.9rem] font-semibold tracking-[-0.02em]">Account</h1>
+      <PageShell className="max-w-3xl">
+        <h1 className="title-3d text-[1.9rem]">Account</h1>
         <p className="mt-2 text-[14.5px] text-muted">{user.email}</p>
 
-        <section className="mt-10 rounded-panel border border-line bg-panel p-7">
+        <section className="plate plate-face plate-glow mt-10 rounded-panel p-7">
           <div className="legend">Subscription</div>
 
           {!ent || (!live && ent.state === 'none') ? (
@@ -53,11 +52,11 @@ export default async function AccountPage() {
               <p className="mt-3 text-[15px]">No active plan.</p>
               <p className="mt-2 text-[14px] leading-relaxed text-muted">
                 You can upload, analyse and preview videos for free. A plan is needed to
-                download the patched file.
+                download the finished file.
               </p>
               <Link
                 href="/pricing"
-                className="mt-6 inline-block rounded-xl bg-accent px-5 py-3 text-[14px] font-medium text-white transition hover:bg-accent-soft"
+                className="pill pill-primary mt-6"
               >
                 See plans
               </Link>
@@ -128,7 +127,7 @@ export default async function AccountPage() {
           what you paid for. See our{' '}
           <Link href="/legal/refunds" className="underline hover:text-muted">refund policy</Link>.
         </p>
-      </main>
+      </PageShell>
     </>
   );
 }

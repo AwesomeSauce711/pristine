@@ -28,14 +28,20 @@ interface State {
   note: string | null;
 }
 
+/*
+ * The wording matches the Terms and the refund policy exactly: subscriptions
+ * and access continue, the fix is the priority, time lost past fourteen days
+ * is credited. Nothing here promises to stop billing.
+ */
 const DEFAULT_NOTE = {
   degraded:
-    'We are investigating reports that uploads are being re-encoded. New subscriptions are '
-    + 'paused while we check. Existing subscriptions are unaffected.',
+    'We are looking into reports that some uploads are being re-encoded. Everything else is '
+    + 'running as normal, and we will post an update here as soon as we know more.',
   broken:
-    'TikTok has changed how uploads are processed and the patch is not currently having any '
-    + 'effect. New subscriptions are paused and we have stopped billing. Existing customers do '
-    + 'not need to do anything.',
+    'TikTok has changed how uploads are processed and Pristine is temporarily not having its '
+    + 'intended effect. We are on it and will have it back up and running as soon as possible. '
+    + 'Your subscription and access continue and resume automatically when it is restored; any '
+    + 'time lost beyond 14 days is added to your plan. New subscriptions are paused until then.',
 };
 
 export default function StatusBanner() {
@@ -61,7 +67,7 @@ export default function StatusBanner() {
       }`}
     >
       <strong className="font-medium">
-        {broken ? 'Not working right now.' : 'Something may be wrong.'}
+        {broken ? 'Temporarily not working — a fix is in progress.' : 'We are checking something.'}
       </strong>{' '}
       {state.note ?? (broken ? DEFAULT_NOTE.broken : DEFAULT_NOTE.degraded)}
     </div>

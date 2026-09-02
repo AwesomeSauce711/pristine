@@ -54,6 +54,15 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
 
+  /*
+   * Phones on the same Wi-Fi. Next blocks cross-origin requests to the dev
+   * server's own assets from any host it was not started on, so a page
+   * opened at the PC's LAN address gets its HTML and none of its JavaScript
+   * — no effects, no hand, no drop zone. List the addresses that may ask.
+   * Development only; production never reads this.
+   */
+  allowedDevOrigins: ['10.193.240.54', '192.168.1.*', '192.168.0.*', '10.*.*.*'],
+
   // A stack trace in a production response tells an attacker about the code and
   // tells the user nothing they can act on.
   productionBrowserSourceMaps: false,

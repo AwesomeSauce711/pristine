@@ -45,7 +45,7 @@ export default function BillingActions({ signOutOnly = false }: { signOutOnly?: 
       <button
         onClick={doSignOut}
         disabled={busy === 'signout'}
-        className="mt-8 rounded-xl border border-line px-5 py-2.5 text-[13.5px] text-muted
+        className="mt-8 pill pill-ghost pill-sm
                    transition hover:border-dim hover:text-text disabled:opacity-40"
       >
         {busy === 'signout' ? 'Signing out…' : 'Sign out'}
@@ -58,7 +58,7 @@ export default function BillingActions({ signOutOnly = false }: { signOutOnly?: 
       <button
         onClick={openPortal}
         disabled={busy === 'portal'}
-        className="rounded-xl border border-line px-5 py-3 text-[14px] font-medium text-text
+        className="pill pill-ghost
                    transition hover:border-dim disabled:opacity-40"
       >
         {busy === 'portal' ? 'Opening…' : 'Manage billing, update card, or cancel'}
