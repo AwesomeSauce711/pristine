@@ -33,15 +33,14 @@ import { randomPristine } from '@/lib/engagement';
  */
 
 interface Props {
-  beforeSrc: string;
-  afterSrc: string;
-  beforePoster: string;
-  afterPoster: string;
+  /** One file, both renditions side by side. See CompareSlider. */
+  src: string;
+  poster: string;
   /** Draw the hand holding the phone. */
   hand?: boolean;
 }
 
-export default function CompareStage({ beforeSrc, afterSrc, beforePoster, afterPoster, hand = true }: Props) {
+export default function CompareStage({ src, poster, hand = true }: Props) {
   const [pos, setPos] = useState(50);
   const onPositionChange = useCallback((p: number) => setPos(p), []);
   /* A fresh set of million-scale figures per visit. Safe to draw at random
@@ -75,10 +74,8 @@ export default function CompareStage({ beforeSrc, afterSrc, beforePoster, afterP
       }
     >
       <CompareSlider
-        beforeSrc={beforeSrc}
-        afterSrc={afterSrc}
-        beforePoster={beforePoster}
-        afterPoster={afterPoster}
+        src={src}
+        poster={poster}
         motionDrive
         onPositionChange={onPositionChange}
       />

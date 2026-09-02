@@ -1797,10 +1797,23 @@ body {
 
 /* The drop zone is glass, not a slab: the field behind it shows through and
  * the words sit on a soft dark pool so they still read. */
+/*
+ * The drop zone is a FRAME, not a panel.
+ *
+ * Every other plate is opaque because it carries text that has to stay legible
+ * over the starfield. This one carries an icon and two lines, and what belongs
+ * inside it is the reader's own video — so the scene showing through is the
+ * point. The face is cleared entirely and the body gradient with it; the ring,
+ * the dashed target and the light that comes up under a held file all stay,
+ * which is what still reads as somewhere to drop something.
+ */
 .drop-clear .plate-face,
 .drop-clear.plate-face {
-  background:
-    radial-gradient(60% 70% at 50% 50%, rgba(5, 6, 12, 0.5), rgba(5, 6, 12, 0.18) 100%);
+  background: none;
+}
+.drop-clear .plate-face::after,
+.drop-clear.plate-face::after {
+  opacity: 0;
 }
 
 /* The slab in flight carries the reader's video. */

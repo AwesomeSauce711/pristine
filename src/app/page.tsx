@@ -322,10 +322,8 @@ export default function Home() {
           */}
         <SceneSection className="py-10 md:py-16">
           <CompareStage
-            beforeSrc="/demo/before.mp4"
-            afterSrc="/demo/after.mp4"
-            beforePoster="/demo/before.jpg"
-            afterPoster="/demo/after.jpg"
+            src="/demo/pair.mp4"
+            poster="/demo/pair.jpg"
           />
         </SceneSection>
         </div>

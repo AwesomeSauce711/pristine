@@ -1,88 +1,83 @@
 /*
- * verify-sync.mts — the drift-correction decision.
+ * verify-sync.mts — the comparison's two halves are the same frame.
  *
- * The rest of the sync is DOM and timing and needs a real, VISIBLE browser:
- * requestAnimationFrame is throttled to zero on a hidden document, so an
- * automated check of the whole loop reports a stall no user would ever see.
- * This pins the part that carries the judgement.
+ * WHAT THIS USED TO TEST, AND WHY IT NO LONGER DOES
+ * The slider was two <video> elements corrected against each other, and this
+ * file tested the correction: deadbands, rate nudges, when to seek. Every
+ * version of that was wrong in one direction or the other — too eager and it
+ * juddered, too loose and the halves sat visibly apart — because two elements
+ * are two clocks and `currentTime` is only accurate to a frame, so even the
+ * measurement of the error had a frame of noise in it. Both failures were
+ * reported from the live page.
  *
- * The correction is proportional: a slip is closed at a rate that grows with
- * the slip and is capped where motion would start to look fast or slow. A
- * a frame of sampling jitter is left alone; anything past an eighth of a second is
- * a seek, because nothing gradual closes a loop wrap or a stall.
+ * There is one element now. Both halves are read from a single file that holds
+ * the two renditions side by side, in one pair of draw calls on one tick. They
+ * are the same frame BY CONSTRUCTION, so there is no timing left to test — and
+ * a test suite that went on measuring a mechanism that no longer exists would
+ * be worse than none.
+ *
+ * What is worth pinning is the geometry, because getting it wrong is silent:
+ * the halves would still be in sync and you would be looking at the wrong part
+ * of the picture, or comparing a half against itself.
  */
 
-import { correctionFor } from '../src/components/CompareSlider';
+import { splitDraw } from '../src/components/CompareSlider';
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, detail = '') => {
-  console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`);
+  console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
   cond ? pass++ : fail++;
 };
 
-console.log('\nvideo sync\n');
+console.log('\ncomparison geometry\n');
 
-const inSync = correctionFor(0.003);
-ok('a quarter of a frame apart is left alone', !inSync.seek && inSync.rate === 1,
-  'correcting what nobody can see is what makes it visible');
+/* The real shape: two 540x960 renditions welded side by side. */
+const VW = 1080, VH = 960, CW = 900, CH = 1600;
 
-/*
- * REGRESSION. `video.currentTime` steps once per frame, and the two elements do
- * not step together, so the drift measured between two perfectly synchronised
- * clips still swings by up to a full frame. A deadband under that turns every
- * sample into a correction: the rate is nudged either side of 1 at 60Hz and the
- * comparison visibly stutters. This is not a hypothetical — a deadband of a
- * quarter of a frame shipped, and the judder was reported from the page.
- */
-const samplingJitter = correctionFor(0.016);
-ok('a single frame of sampling jitter is not treated as drift',
-  !samplingJitter.seek && samplingJitter.rate === 1,
-  'a deadband below one frame corrects every frame, which IS the judder');
+const mid = splitDraw(VW, VH, CW, CH, 50);
 
-const slightlyAhead = correctionFor(0.05);
-ok('slightly ahead slows down, without seeking',
-  !slightlyAhead.seek && slightlyAhead.rate < 1 && slightlyAhead.rate >= 0.96,
-  String(slightlyAhead.rate));
+ok('the two halves are read from different parts of the source',
+  mid.crushed.sx !== mid.pristine.sx,
+  `crushed at x=${mid.crushed.sx}, pristine at x=${mid.pristine.sx}`);
 
-const slightlyBehind = correctionFor(-0.05);
-ok('slightly behind speeds up, without seeking',
-  !slightlyBehind.seek && slightlyBehind.rate > 1 && slightlyBehind.rate <= 1.04,
-  String(slightlyBehind.rate));
+ok('the crushed half is the left one', mid.crushed.sx === 0);
+ok('the pristine half is the right one', mid.pristine.sx === VW / 2);
 
-const bigger = correctionFor(0.09);
-ok('a bigger slip is closed faster', bigger.rate < slightlyAhead.rate && !bigger.seek,
-  `${bigger.rate} < ${slightlyAhead.rate}`);
+ok('neither half reads past its own edge',
+  mid.crushed.sx + mid.crushed.sw === VW / 2 && mid.pristine.sx + mid.pristine.sw === VW,
+  'a half that overran would show a sliver of the other rendition');
 
-/*
- * Continuity at the deadband. Scaling the nudge from zero drift rather than
- * from the deadband makes the rate jump straight to ~0.95 the moment a
- * measurement wobbles over the line — a visible hitch, and a second cause of
- * the judder the correction is there to remove.
- */
-const justInside = correctionFor(0.0331);
-const justOutside = correctionFor(0.0335);
-ok('the correction starts from nothing at the deadband, with no step',
-  justInside.rate === 1 && Math.abs(justOutside.rate - 1) < 0.005,
-  `${justInside.rate} -> ${justOutside.rate}`);
+ok('both halves fill the canvas, so the split is a reveal and not a squeeze',
+  mid.crushed.dw === CW && mid.pristine.dw === CW && mid.crushed.dh === CH,
+  'each side is drawn full-size; the clip is what hides one');
 
-const wrapped = correctionFor(-3.9);
-ok('a loop wrap seeks', wrapped.seek && wrapped.rate === 1,
-  'nothing gradual closes four seconds');
+/* Both rectangles carry the whole height: a half-height read would silently
+ * letterbox one side against the other. */
+ok('both halves take the full height of the source',
+  mid.crushed.sh === VH && mid.pristine.sh === VH);
 
-const stalled = correctionFor(1.5);
-ok('a long stall seeks', stalled.seek);
+/* The travel. At either end one rendition must be showing WHOLE, with no
+ * remnant of the other — that is the whole point of dragging it to the end. */
+const left = splitDraw(VW, VH, CW, CH, 0);
+ok('dragged fully left, the pristine side covers everything',
+  left.clip === 0 && left.pristineVisible, `clip=${left.clip}`);
 
-ok('past an eighth of a second it seeks', correctionFor(0.13).seek && !correctionFor(0.11).seek);
+const right = splitDraw(VW, VH, CW, CH, 100);
+ok('dragged fully right, the pristine side is not drawn at all',
+  right.clip === CW && !right.pristineVisible,
+  'drawing a zero-width sliver is where a seam of the wrong half appears');
 
-/* The rate never strays far enough to be perceptible as fast or slow motion. */
-const rates = [0.004, 0.05, 0.09, 0.1, -0.05, -0.1].map((d) => correctionFor(d).rate);
-ok('every nudge stays within 8%', rates.every((r) => Math.abs(r - 1) <= 0.08 + 1e-9),
-  rates.join(', '));
+/* The divider's position and the clip must be the same number, or the picture
+ * and the line the reader is dragging disagree. */
+ok('the clip follows the split exactly',
+  splitDraw(VW, VH, CW, CH, 25).clip === CW * 0.25
+  && splitDraw(VW, VH, CW, CH, 75).clip === CW * 0.75);
 
-/* Symmetry: the response to being ahead must mirror being behind, or the
- * correction biases in one direction and drift accumulates over many loops. */
-ok('correction is symmetric',
-  Math.abs((correctionFor(0.09).rate - 1) + (correctionFor(-0.09).rate - 1)) < 1e-9);
+/* Out-of-range input comes from motion drive and from a fast drag past the
+ * edge; it must clamp rather than read outside the canvas. */
+ok('a split past either end clamps',
+  splitDraw(VW, VH, CW, CH, -20).clip === 0
+  && splitDraw(VW, VH, CW, CH, 140).clip === CW);
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

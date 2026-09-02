@@ -40,10 +40,14 @@ import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
  */
 
 interface Props {
-  beforeSrc: string;
-  afterSrc: string;
-  beforePoster: string;
-  afterPoster: string;
+  /**
+   * ONE file holding BOTH renditions side by side: the crushed one in the left
+   * half, the pristine one in the right. See the note at the top for why this
+   * is a single file rather than two.
+   */
+  src: string;
+  /** The composited still — crushed left of centre, pristine right of it. */
+  poster: string;
   /** Called whenever the split moves, with the divider's position in percent. */
   onPositionChange?: (pos: number) => void;
   /**
@@ -66,44 +70,6 @@ interface Props {
  * the only option here.
  */
 /*
- * Two frames at 60fps — below this the rate is left alone.
- *
- * THIS NUMBER CANNOT GO BELOW ONE FRAME, and it is worth saying why, because a
- * tighter value looks more precise and is in fact the thing that makes the
- * comparison stutter.
- *
- * `video.currentTime` does not advance smoothly. It reports the presentation
- * time of the frame currently on screen, so it steps once per frame — 16.7ms at
- * 60fps — and the two elements do not step on the same instant. So the drift
- * MEASURED between two perfectly synchronised clips still swings by up to a
- * full frame, purely from when each was sampled.
- *
- * Set the deadband under that and every sample looks like drift. The rate is
- * then nudged on almost every animation frame, swinging either side of 1 at
- * 60Hz, and the result is precisely the judder the correction exists to
- * prevent — a previous value of 0.004 (a quarter of a frame) did exactly this.
- * Two frames sits clearly above the sampling floor while staying under the
- * threshold where an offset reads as lag rather than as a comparison.
- */
-const MAX_DRIFT_SEC = 0.033;
-/* Past this, only a seek closes it: a loop wrap, a stall, or a buffering pause. */
-const RESEEK_SEC = 0.12;
-/*
- * The rate nudge is proportional to how far the drift is PAST the deadband —
- * not to the drift itself — and capped where motion would start to look wrong.
- *
- * Measuring from the deadband rather than from zero is what keeps the
- * correction continuous. Scaled from zero, crossing the threshold would jump
- * the rate straight to 0.95: a 5% step, applied the instant a measurement
- * wobbles over the line, which is a visible hitch and a second source of the
- * judder this whole mechanism exists to remove. Measured from the deadband, the
- * correction starts at nothing and grows, so there is no step to see at the
- * moment it engages.
- */
-const RATE_GAIN = 1.5;
-const RATE_MAX = 0.08;
-
-/*
  * The chime plays when the split crosses the midpoint toward Pristine, and
  * re-arms only once it has come clearly back — the same hysteresis as the
  * holograms' pop, so a pointer hovering on the line does not ring every frame.
@@ -114,33 +80,32 @@ const REVEAL_AT = 52;
 const REVEAL_REARM_ABOVE = 58;
 
 /**
- * What to do about a given drift, as a pure decision.
+ * Where each half is read from, and where it lands.
  *
- * Extracted so it can be tested. The rest of the sync is DOM and timing, which
- * needs a real browser and a visible page — `requestAnimationFrame` is throttled
- * to zero on a hidden document, so a headless check of the whole loop would
- * report a stall that no user would ever see. This is the part that carries the
- * actual judgement, and it is verifiable without any of that.
- *
- * `drift` is slave minus master: positive means the slave is ahead.
+ * Exported so the geometry is testable. There is no timing left to test: both
+ * rectangles are read from the SAME video element on the SAME draw, so they are
+ * the same frame by construction rather than by correction.
  */
-export function correctionFor(drift: number): { seek: boolean; rate: number } {
-  const mag = Math.abs(drift);
-  if (mag > RESEEK_SEC) return { seek: true, rate: 1 };
-  if (mag > MAX_DRIFT_SEC) {
-    const excess = (mag - MAX_DRIFT_SEC) * Math.sign(drift);
-    const nudge = Math.max(-RATE_MAX, Math.min(RATE_MAX, excess * RATE_GAIN));
-    return { seek: false, rate: Math.round((1 - nudge) * 1000) / 1000 };
-  }
-  return { seek: false, rate: 1 };
+export function splitDraw(videoW: number, videoH: number, canvasW: number, canvasH: number, posPct: number) {
+  const half = videoW / 2;
+  const clip = Math.max(0, Math.min(canvasW, (canvasW * posPct) / 100));
+  return {
+    /* The crushed half, under everything, from the left of the source. */
+    crushed: { sx: 0, sy: 0, sw: half, sh: videoH, dx: 0, dy: 0, dw: canvasW, dh: canvasH },
+    /* The pristine half, from the right of the source, clipped to the reveal. */
+    pristine: { sx: half, sy: 0, sw: half, sh: videoH, dx: 0, dy: 0, dw: canvasW, dh: canvasH },
+    /* x where the pristine side starts. At 100 it is canvasW: nothing is drawn. */
+    clip,
+    pristineVisible: clip < canvasW,
+  };
 }
 
 export default function CompareSlider({
-  beforeSrc, afterSrc, beforePoster, afterPoster, onPositionChange, motionDrive = false,
+  src, poster, onPositionChange, motionDrive = false,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const beforeRef = useRef<HTMLVideoElement>(null);
-  const afterRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [pos, setPos] = useState(50);
   const [visible, setVisible] = useState(false);
@@ -172,142 +137,101 @@ export default function CompareSlider({
   }, []);
 
   /*
-   * Keep the two elements on the same frame.
+   * ONE video, drawn twice.
    *
-   * WHY SEEKING ALONE DOES NOT WORK
-   * The previous version only acted when drift passed a threshold, and then
-   * corrected by assigning currentTime. A seek is not free: the element stalls
-   * while it lands, which produces more drift, which triggers another seek. It
-   * oscillates, and every correction is a visible jump — which reads as "the
-   * videos are not synced" even though on average they are.
+   * This used to be two <video> elements corrected against each other, and no
+   * amount of correction was ever going to be right. Two elements are two
+   * independent clocks: they start at whatever moment each finishes buffering,
+   * they drift, and `currentTime` is quantised to the frame, so even the
+   * MEASUREMENT of how far apart they are is only accurate to a frame. Every
+   * version of that machinery either corrected too eagerly and juddered, or too
+   * loosely and sat visibly a frame or two apart. Both failures were reported.
    *
-   * So there are two regimes. A LARGE gap (a loop wrap, a stall, one stream
-   * buffering) is a seek, because nothing else closes four seconds. A SMALL gap
-   * is closed by nudging playbackRate a fraction, which the viewer cannot see
-   * and which costs no seek at all. This is how video players keep audio and
-   * video tracks together, for the same reason.
+   * So there is one element now, holding both renditions side by side in a
+   * single file, and one canvas that draws the left half and then the right
+   * half clipped to the reveal. The two sides are the same frame BY
+   * CONSTRUCTION — they are read from one element in one draw call pair, on one
+   * tick. There is no clock to drift, nothing to correct, and no threshold to
+   * get wrong. It also halves the decoders, which is what the page could least
+   * afford on a phone.
    *
-   * They also start together rather than whenever each finishes loading: both
-   * are held until `canplay` on both, then played in the same tick. Most of the
-   * visible offset was there from the first frame and never came from drift.
+   * Both halves are still exactly what TikTok served; welding them into one
+   * file changes how they are delivered, not what they are.
+   *
+   * A further gain: the split stays coherent even when the clip is not running.
+   * If autoplay is refused the canvas still draws the current frame, so the
+   * comparison reads correctly as a still instead of showing two mismatched
+   * frozen pictures.
    */
   useEffect(() => {
     if (!visible) return;
-    const a = beforeRef.current;
-    const b = afterRef.current;
-    if (!a || !b) return;
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!v || !c || !wrap) return;
+    const ctx = c.getContext('2d', { alpha: false });
+    if (!ctx) return;
 
     let raf = 0;
-    let started = false;
     let starting = false;
 
-    /*
-     * WHY THIS WATCHES WHETHER play() ACTUALLY SUCCEEDED
-     *
-     * `play()` returns a promise, and it is rejected more often than the
-     * autoplay rules suggest. Muted and inline satisfies the policy in a normal
-     * tab, but not in iOS Low Power Mode, not under Data Saver, not in a
-     * background or zero-sized tab, and not on some Android browsers until the
-     * page has been touched. The earlier version set `started` before calling
-     * play and swallowed the rejection, so any of those left both clips frozen
-     * on their poster with nothing able to recover: `started` was true, so no
-     * later `canplay` would try again, and there was no other path back.
-     *
-     * A silent still frame is the worst available failure. The comparison IS
-     * the argument for the product, and a reader who sees two identical
-     * motionless pictures concludes there is nothing in it.
-     *
-     * So `started` is only set once both elements are genuinely playing, a
-     * rejection leaves the door open for the next attempt, and a first touch
-     * anywhere on the page counts as one — which is the gesture every mobile
-     * autoplay policy is waiting for.
-     */
-    const startBoth = () => {
-      if (started || starting) return;
-      if (a.readyState < 3 || b.readyState < 3) return;
-      starting = true;
-      a.currentTime = 0;
-      b.currentTime = 0;
-      void Promise.all([a.play(), b.play()])
-        .then(() => { started = true; })
-        .catch(() => { /* Blocked or interrupted; a later canplay or a touch retries. */ })
-        .finally(() => { starting = false; });
+    /* Device pixels, or a 2x screen throws away the difference being shown. */
+    const size = () => {
+      if (!v.videoWidth) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const w = Math.max(16, Math.round((wrap.clientWidth || 300) * dpr));
+      c.width = w;
+      c.height = Math.max(16, Math.round((w * v.videoHeight) / (v.videoWidth / 2)));
     };
 
-    const tick = () => {
-      if (started && !a.paused && !b.paused && Number.isFinite(a.currentTime)) {
-        const drift = b.currentTime - a.currentTime;
-
-        const fix = correctionFor(drift);
-        // A wrap or a stall: nothing gradual closes four seconds.
-        if (fix.seek) b.currentTime = a.currentTime;
-        // Otherwise nudge the rate. 2% is far below the ~5% at which a viewer
-        // starts to notice motion running fast or slow.
-        if (Math.abs(b.playbackRate - fix.rate) > 0.0015) b.playbackRate = fix.rate;
+    const draw = () => {
+      if (v.readyState >= 2 && v.videoWidth && c.width > 0) {
+        const g = splitDraw(v.videoWidth, v.videoHeight, c.width, c.height, posRef.current);
+        const { crushed: k, pristine: pr } = g;
+        ctx.drawImage(v, k.sx, k.sy, k.sw, k.sh, k.dx, k.dy, k.dw, k.dh);
+        if (g.pristineVisible) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(g.clip, 0, c.width - g.clip, c.height);
+          ctx.clip();
+          ctx.drawImage(v, pr.sx, pr.sy, pr.sw, pr.sh, pr.dx, pr.dy, pr.dw, pr.dh);
+          ctx.restore();
+        }
       }
-      raf = requestAnimationFrame(tick);
+      raf = requestAnimationFrame(draw);
     };
 
     /*
-     * On a phone one clip buffers before the other, and a rate nudge cannot
-     * close a gap that is still opening. So a stall on either side pauses
-     * both, and when the stalled one can play again they are put on the same
-     * frame and restarted in the same tick.
+     * `play()` is rejected more often than the autoplay rules suggest — iOS Low
+     * Power Mode, Data Saver, a backgrounded tab, some Android browsers until
+     * the page is touched. So a refusal is never final: the next `canplay` and
+     * the first touch anywhere both try again.
      */
-    let holding = false;
-    const hold = () => {
-      if (!started || holding) return;
-      holding = true;
-      a.pause();
-      b.pause();
+    const start = () => {
+      if (starting || !v.paused || v.readyState < 3) return;
+      starting = true;
+      void v.play().catch(() => {}).finally(() => { starting = false; });
     };
-    const release = () => {
-      if (!holding) return;
-      if (a.readyState < 3 || b.readyState < 3) return;
-      b.currentTime = a.currentTime;
-      /* Same rule as startBoth: the hold is only lifted once both are really
-       * playing again, so a rejected resume is retried rather than leaving the
-       * pair stopped with `holding` false and nothing left to notice. */
-      void Promise.all([a.play(), b.play()])
-        .then(() => { holding = false; })
-        .catch(() => {});
-    };
-    for (const v of [a, b]) {
-      v.addEventListener('canplay', startBoth);
-      v.addEventListener('waiting', hold);
-      v.addEventListener('stalled', hold);
-      v.addEventListener('canplay', release);
-      v.addEventListener('canplaythrough', release);
-    }
-    /*
-     * The gesture every mobile autoplay policy is waiting for. Passive and on
-     * the capture phase so it cannot interfere with the divider's own drag, and
-     * it costs nothing once the clips are running.
-     */
-    const onGesture = () => {
-      if (!started) { startBoth(); return; }
-      /* Started once, stopped since — a refused resume after a stall, or a
-       * platform that paused the media on its own. A touch puts it back. */
-      if (a.paused || b.paused) { holding = true; release(); }
-    };
+    const onGesture = () => { if (v.paused) start(); };
+
+    v.addEventListener('loadedmetadata', size);
+    v.addEventListener('canplay', start);
     document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
     document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
+    const ro = new ResizeObserver(size);
+    ro.observe(wrap);
 
-    startBoth();
-    raf = requestAnimationFrame(tick);
+    if (v.videoWidth) size();
+    start();
+    raf = requestAnimationFrame(draw);
 
     return () => {
       cancelAnimationFrame(raf);
+      ro.disconnect();
+      v.removeEventListener('loadedmetadata', size);
+      v.removeEventListener('canplay', start);
       document.removeEventListener('pointerdown', onGesture, { capture: true });
       document.removeEventListener('touchstart', onGesture, { capture: true });
-      for (const v of [a, b]) {
-        v.removeEventListener('canplay', startBoth);
-        v.removeEventListener('waiting', hold);
-        v.removeEventListener('stalled', hold);
-        v.removeEventListener('canplay', release);
-        v.removeEventListener('canplaythrough', release);
-      }
-      b.playbackRate = 1;
     };
   }, [visible]);
 
@@ -454,13 +378,6 @@ export default function CompareSlider({
    * correction ever created and none of it could explain. The effect starts
    * both together once both can play; see the sync effect above.
    */
-  const videoProps = {
-    muted: true,
-    loop: true,
-    playsInline: true,
-    preload: 'auto' as const,
-    className: 'absolute inset-0 h-full w-full object-cover',
-  };
 
   return (
     <figure className="w-full">
@@ -479,30 +396,32 @@ export default function CompareSlider({
         className="relative aspect-[9/16] w-full overflow-hidden rounded-[38px]
                    bg-panel select-none touch-pan-y"
       >
-        {/* BEFORE — what TikTok does to an ordinary upload. */}
-        {visible ? (
-          <video ref={beforeRef} poster={beforePoster} {...videoProps}>
-            <source src={beforeSrc} type="video/mp4" />
-          </video>
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={beforePoster} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        {/*
+          * The source. Off-screen but not `display:none` and not zero-sized —
+          * a hidden element is allowed to be throttled or never decoded, and
+          * the canvas would then have nothing to draw. It carries no poster of
+          * its own: the still below is the composited one.
+          */}
+        {visible && (
+          <video
+            ref={videoRef}
+            src={src}
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            className="pointer-events-none absolute h-px w-px opacity-0"
+          />
         )}
 
-        {/* AFTER — clipped from the left, so dragging reveals it. */}
-        <div
-          className="absolute inset-0"
-          style={{ clipPath: `inset(0 0 0 ${pos}%)` }}
-        >
-          {visible ? (
-            <video ref={afterRef} poster={afterPoster} {...videoProps}>
-              <source src={afterSrc} type="video/mp4" />
-            </video>
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={afterPoster} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          )}
-        </div>
+        {/* The picture: both halves, from one frame, every frame. */}
+        <canvas
+          ref={canvasRef}
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ backgroundImage: `url(${poster})`, backgroundSize: 'cover' }}
+        />
 
         {/* The divider: a hairline that goes out at either end, so a split
             pushed all the way shows one whole video with no line on it; and
@@ -540,9 +459,9 @@ export default function CompareSlider({
       </div>
 
       <figcaption className="mx-auto mt-9 max-w-[520px] text-center text-[12.5px] leading-relaxed text-dim">
-        Both clips are exactly what TikTok served back — same footage, same account, uploaded
-        minutes apart. Re-encoded here at identical settings for web playback, so the only
-        difference is what TikTok did to each.
+        Both halves are exactly what TikTok served back — same footage, same account,
+        uploaded minutes apart. They are delivered here as one file and drawn from the same
+        frame, so the only difference you are looking at is what TikTok did to each.
       </figcaption>
     </figure>
   );

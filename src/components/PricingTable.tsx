@@ -73,10 +73,21 @@ export default function PricingTable() {
 
   return (
     <>
-      {/* Three across at every width. On a phone the cards are compact —
-        * name, price, the one number that differs, the button — so all three
-        * are on screen at once without a scroll; the full cards return at md. */}
-      <div className="grid grid-cols-3 gap-2 md:gap-5">
+      {/*
+        * ONE PER ROW ON A PHONE, three across from md.
+        *
+        * Three columns at 375px gives each plan about 110 pixels, and at that
+        * width everything wraps: "Save 75% against monthly" ran to three lines,
+        * the buttons shrank under the touch minimum, and the whole comparison
+        * read as three narrow towers rather than three offers. Fitting all
+        * three on screen at once is not worth making each one illegible — a
+        * pricing page is somewhere people are willing to scroll.
+        *
+        * So each card takes the full width and lays out sideways: what it is
+        * and what it costs on the left, what you get on the right, the button
+        * under both. The three-across desktop design is untouched.
+        */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-5">
         {PLAN_ORDER.map((id, i) => {
           const p = PLANS[id];
           const featured = p.id === 'month';
@@ -86,7 +97,7 @@ export default function PricingTable() {
             <div
               key={p.id}
               className={[
-                'plate plate-face tier-card pricing-rise relative flex flex-col rounded-panel p-3 pt-4 md:p-7 transition',
+                'plate plate-face tier-card pricing-rise relative flex flex-col rounded-panel p-5 pt-6 md:p-7 transition',
                 `tier-${p.id}`,
                 featured
                   ? 'plate-glow glow-iri'
@@ -122,7 +133,7 @@ export default function PricingTable() {
               {p.badge && (
                 <span
                   className={[
-                    'absolute -top-2.5 left-3 rounded-full px-2 py-0.5 text-[8px] font-medium uppercase tracking-[0.1em] md:left-7 md:px-2.5 md:py-1 md:text-[10px]',
+                    'absolute -top-2.5 left-5 rounded-full px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] md:left-7 md:text-[10px]',
                     featured ? 'badge-iri font-semibold' : 'border border-line bg-panel-2 text-muted',
                   ].join(' ')}
                 >
@@ -130,20 +141,25 @@ export default function PricingTable() {
                 </span>
               )}
 
-              <h3 className="text-[12px] font-medium md:text-[15px]">{p.name}</h3>
+              {/* Sideways on a phone: identity and price left, what you get
+                  right. `md:block` puts the desktop card back as it was. */}
+              <div className="flex items-start justify-between gap-5 md:block">
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-medium">{p.name}</h3>
 
-              <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 md:mt-4">
-                <span className="price-pop tabular text-[1.45rem] font-medium leading-none tracking-tight md:text-[2.5rem]">
-                  {money(p.amount)}
-                </span>
-                <span className="text-[11px] text-dim md:text-[14px]">/{p.interval}</span>
-              </div>
+                  <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 md:mt-4">
+                    <span className="price-pop tabular text-[2rem] font-medium leading-none tracking-tight md:text-[2.5rem]">
+                      {money(p.amount)}
+                    </span>
+                    <span className="text-[13px] text-dim md:text-[14px]">/{p.interval}</span>
+                  </div>
 
-              {p.id === 'year' && (
-                <p className="tabular mt-2 text-[12px] text-good">
-                  Save {annualSavingPct}% against monthly
-                </p>
-              )}
+                  {p.id === 'year' && (
+                    <p className="tabular mt-2 text-[12px] whitespace-nowrap text-good md:whitespace-normal">
+                      Save {annualSavingPct}% against monthly
+                    </p>
+                  )}
+                </div>
 
               <p className="mt-4 hidden text-[13.5px] leading-relaxed text-muted md:block">{p.blurb}</p>
 
@@ -161,7 +177,7 @@ export default function PricingTable() {
                 * then animated. It is the only thing that actually differs
                 * between the tiers, so it is the only thing that escalates.
                 */}
-              <div className="mt-3 flex items-baseline gap-1.5 md:mt-6 md:gap-2">
+              <div className="flex shrink-0 items-baseline gap-1.5 md:mt-6 md:gap-2">
                 <span
                   className={[
                     'tabular font-semibold leading-none tracking-[-0.03em]',
@@ -172,9 +188,10 @@ export default function PricingTable() {
                 >
                   {p.dailyPatchCap}
                 </span>
-                <span className="text-[10px] leading-tight text-muted md:text-[13.5px]">
+                <span className="text-[11px] leading-tight text-muted md:text-[13.5px]">
                   {p.dailyPatchCap === 1 ? 'video' : 'videos'}<br />per day
                 </span>
+                </div>
               </div>
 
               <ul className="mt-6 mb-7 hidden space-y-2.5 text-[13.5px] text-muted md:block">
@@ -191,19 +208,22 @@ export default function PricingTable() {
                   onClick={() => start(p.id)}
                   disabled={busy !== null}
                   className={[
-                    'pill w-full disabled:opacity-60 max-md:min-h-9 max-md:px-2 max-md:text-[10px]',
+                    'pill w-full disabled:opacity-60',
                     featured
                       ? 'pill-primary'
                       : 'pill-ghost',
                   ].join(' ')}
                 >
-                  <span className="md:hidden">{busy === p.id ? 'Opening…' : p.trialDays > 0 ? 'Start trial' : 'Start'}</span>
-                  <span className="hidden md:inline">{busy === p.id ? 'Opening secure checkout…' : cta}</span>
+                  {busy === p.id ? 'Opening secure checkout…' : cta}
                 </button>
 
                 {/* Two lines tall on every card, so the buttons above them line up:
                     the weekly note wraps to two lines, the others to one. */}
-                <p className="mt-3 hidden min-h-[2.6rem] text-center text-[11.5px] leading-relaxed text-dim md:block">
+                {/* Shown at EVERY width now, not just desktop. What renews, for how
+                    much, has to sit beside the control that starts it — that is the
+                    ROSCA requirement and it was previously hidden on the phones most
+                    of these customers are using. */}
+                <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim md:min-h-[2.6rem]">
                   {p.trialDays > 0
                     ? <>Then {money(p.amount)}/{p.interval}. Cancel any time.</>
                     : <>Billed {money(p.amount)} weekly. No trial on this plan. Cancel any time.</>}
@@ -213,14 +233,6 @@ export default function PricingTable() {
           );
         })}
       </div>
-
-      {/* What every plan shares, once, under the compact cards. */}
-      <ul className="mx-auto mt-5 grid max-w-md grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] text-muted md:hidden">
-        <li className="flex gap-2"><Tick /> Never re-encoded</li>
-        <li className="flex gap-2"><Tick /> Up to 4K and 60fps</li>
-        <li className="flex gap-2"><Tick /> Never leaves your device</li>
-        <li className="flex gap-2"><Tick /> Free trial on monthly and annual</li>
-      </ul>
 
       {error && (
         <p className="mx-auto mt-6 max-w-md rounded-lg border border-bad/30 bg-bad/5 px-4 py-3 text-center text-[13px] text-text">

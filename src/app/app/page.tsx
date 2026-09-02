@@ -510,11 +510,38 @@ export default function AppPage() {
                       </>
                     )}
                   </label>
-                  {/* Export advice, in plain sight under the drop zone. */}
-                  <p className="mx-auto mt-5 max-w-lg text-center text-[13px] leading-relaxed text-dim">
-                    Best results at up to 4K and 60 fps — what you send is what stays. Footage in
-                    1080p or 30 fps? Upscale it with Topaz Video AI first, then export and drop it here.
-                  </p>
+                  {/*
+                    * Export advice, given room and a shape of its own.
+                    *
+                    * It was a grey paragraph pressed against the bottom of the
+                    * plate, which is where the eye goes last and where the two
+                    * specs that actually matter were buried mid-sentence. The
+                    * numbers are pulled out as their own chips — the spec is
+                    * the message — with the fallback for smaller footage under
+                    * them as a quieter line.
+                    */}
+                  <div className="mx-auto mt-10 mb-2 flex max-w-lg flex-col items-center gap-3 px-2 pb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="iri-line h-px w-8 shrink-0 opacity-70" aria-hidden="true" />
+                      <span className="legend text-[9.5px]">Bring it in at</span>
+                      <span className="iri-line h-px w-8 shrink-0 opacity-70" aria-hidden="true" />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {['4K', '60 fps', 'MP4 or MOV'].map((spec) => (
+                        <span
+                          key={spec}
+                          className="tabular rounded-full border border-line bg-white/[0.03] px-3 py-1.5
+                                     text-[12px] font-medium tracking-[0.02em] text-text/90"
+                        >
+                          {spec}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-center text-[12.5px] leading-relaxed text-dim">
+                      What you send is what stays. Shot smaller? Upscale with Topaz Video AI first,
+                      then export and bring that file here.
+                    </p>
+                  </div>
                 </Plate3D>
               </div>
 
