@@ -206,11 +206,13 @@ export default function PricingTable() {
                       {id === 'year' && (
                         <p className="tabular mt-2 text-[12px] text-good">Save {annualSavingPct}% against monthly</p>
                       )}
-                      <p className="mt-3 text-[13.5px] text-muted">
+                      <p className="mt-3 mb-6 text-[13.5px] text-muted">
                         <span className="tabular text-text">{p.dailyPatchCap}</span> videos a day ·{' '}
                         <span className="tabular text-text">{p.periodPatchCap.toLocaleString()}</span> per {p.interval}
                       </p>
-                      <div className="mt-6 border-t border-line-soft pt-5">
+                      {/* Pinned to the card's foot, so the buttons line up across
+                          cards whatever the saving line above adds. */}
+                      <div className="mt-auto border-t border-line-soft pt-5">
                         <button
                           onClick={() => upgrade(id)}
                           disabled={busy !== null || done !== null}
