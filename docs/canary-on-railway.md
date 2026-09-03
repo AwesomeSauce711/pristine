@@ -78,9 +78,16 @@ database.
    start command and waits for the process to exit, which the canary does with
    a status code.
 
-6. **Settings → Notifications:** turn on deployment failure alerts. This is the
-   part that matters. A failing check that emails nobody is the same silence
-   the GitHub billing problem created.
+6. **Alerts when it fails.** Railway has no per-service "email me on failure"
+   switch; failed and crashed deployments are announced through a PROJECT
+   webhook. In the Railway project (not the service), open **Settings →
+   Webhooks**, paste a Discord or Slack channel webhook URL and click **Save
+   Webhook**. Railway formats the message for those two itself. For Discord:
+   any server you own → the channel → Edit channel → Integrations → Webhooks →
+   New Webhook → Copy Webhook URL. A canary run that exits non-zero is a
+   failed deployment, so it lands in that channel. This is the part that
+   matters: a failing check that reaches nobody is the same silence the GitHub
+   billing problem created.
 
 ## Reading it
 
