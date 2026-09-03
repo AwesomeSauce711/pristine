@@ -102,6 +102,27 @@ export async function stashFile(file: File): Promise<boolean> {
   }
 }
 
+/**
+ * Read WITHOUT consuming. The caller restores the file and only then clears
+ * the stash (clearStash), so an interrupted restore -- a re-mounted effect, a
+ * navigation mid-way -- does not lose the one copy there is. The previous
+ * take-and-delete did exactly that under React's development double-mount:
+ * the first run took the file and was cancelled, the second found nothing.
+ */
+export async function peekStashedFile(): Promise<File | null> {
+  const db = await open();
+  if (!db) return null;
+  try {
+    const row = await tx<StashedFile>(db, 'readonly', (s) =>
+      s.get(KEY) as IDBRequest<StashedFile>);
+    if (!row || !row.file) return null;
+    if (Date.now() - row.savedAt > TTL_MS) return null;
+    return row.file;
+  } finally {
+    db.close();
+  }
+}
+
 /** Retrieve and immediately delete. Reading it twice is never wanted. */
 export async function takeStashedFile(): Promise<File | null> {
   const db = await open();

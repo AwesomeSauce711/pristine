@@ -32,6 +32,14 @@ import { play } from '@/lib/sound';
 type Stage = 'idle' | 'scanning' | 'ready' | 'error';
 
 interface Props {
+  /**
+   * Bring the phone into view but do not fly anything to it. For a file
+   * restored after a round trip (sign-in, Stripe) there was no drop to fly
+   * from, and the flight costs a second decode of the reader's video while
+   * the real stage waits at opacity 0 -- on a page that has just loaded, that
+   * is a black screen for as long as anything stalls.
+   */
+  skip?: boolean;
   stage: Stage;
   /** The drop zone (the label), while it exists. */
   dropRef: RefObject<HTMLElement | null>;
@@ -67,7 +75,7 @@ const frame = (b: Box, radius: number, opacity: number) => ({
   opacity,
 });
 
-export default function DropMorph({ stage, dropRef, stageRef, videoSrc }: Props) {
+export default function DropMorph({ stage, dropRef, stageRef, videoSrc, skip = false }: Props) {
   const lastDrop = useRef<Box | null>(null);
 
   useLayoutEffect(() => {
@@ -111,7 +119,7 @@ export default function DropMorph({ stage, dropRef, stageRef, videoSrc }: Props)
     const finalTop = rect.top - (scrollTarget - window.scrollY);
     window.scrollTo({ top: scrollTarget, behavior: reduced ? 'auto' : 'smooth' });
 
-    if (reduced || !from || typeof wrap.animate !== 'function') return;
+    if (skip || reduced || !from || typeof wrap.animate !== 'function') return;
 
     const target: Box = { left: rect.left, top: finalTop, width: rect.width, height: rect.height };
 
@@ -192,7 +200,7 @@ export default function DropMorph({ stage, dropRef, stageRef, videoSrc }: Props)
       reveal.cancel();
       wrap.style.opacity = '';
     };
-  }, [stage, dropRef, stageRef, videoSrc]);
+  }, [stage, dropRef, stageRef, videoSrc, skip]);
 
   return null;
 }

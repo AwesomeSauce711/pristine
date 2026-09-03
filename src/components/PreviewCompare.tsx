@@ -118,12 +118,6 @@ export function crushReduction(shortEdge: number, targetShortEdge: number, scree
   return Math.min(1, delivered / clean);
 }
 
-/*
- * The look of a re-encode on the crushed side — a little less colour, a little
- * less contrast — applied by the 2D context as it draws, never by CSS on the
- * canvas (see NO FILTER ON THE SCREEN above).
- */
-const CRUSH_LOOK = 'saturate(0.8) contrast(0.93) brightness(0.94)';
 
 /* Motion drive: the fraction of the remaining distance closed per 60 Hz frame. */
 const FOLLOW = 0.12;
@@ -162,9 +156,6 @@ export default function PreviewCompare({
     if (!v || !c || !wrap) return;
     const ctx = c.getContext('2d', { alpha: false });
     if (!ctx) return;
-    // Resizing a canvas resets its context, filter included, so the look is set
-    // per draw rather than once here.
-    const canFilter = 'filter' in ctx;
 
     /*
      * THE CLEAN SIDE IS THE VIDEO. ONLY THE CRUSHED SIDE IS DRAWN.
@@ -230,7 +221,13 @@ export default function PreviewCompare({
 
     const paint = () => {
       if (v.readyState >= 2 && c.width > 0) {
-        if (canFilter) ctx.filter = CRUSH_LOOK;
+        /*
+         * Only the resolution. There used to be a colour filter here too --
+         * less saturation, less contrast, a little darker -- and it was the
+         * reason the crushed side read as exaggerated: TikTok's transcode
+         * keeps the colour and loses the detail. The detail loss is the
+         * downscale-and-back this canvas performs, and nothing else.
+         */
         ctx.drawImage(v, 0, 0, c.width, c.height);
       }
     };
@@ -255,6 +252,19 @@ export default function PreviewCompare({
       void v.play().catch(() => {}).finally(() => { starting = false; });
     };
     const onGesture = () => { if (v.paused) start(); };
+    /*
+     * A decode that fails outright -- a second decoder unavailable on a cold
+     * page, a source the pipeline rejected once -- leaves a black screen and
+     * no further events. One reload, after a beat; if that fails too the
+     * gesture retry above remains.
+     */
+    let reloaded = false;
+    const onError = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.setTimeout(() => { v.load(); start(); }, 800);
+    };
+    v.addEventListener('error', onError);
 
     v.addEventListener('loadedmetadata', size);
     v.addEventListener('canplay', start);
@@ -279,6 +289,7 @@ export default function PreviewCompare({
       ro.disconnect();
       v.removeEventListener('loadedmetadata', size);
       v.removeEventListener('canplay', start);
+      v.removeEventListener('error', onError);
       document.removeEventListener('pointerdown', onGesture, { capture: true });
       document.removeEventListener('touchstart', onGesture, { capture: true });
     };
@@ -418,8 +429,7 @@ export default function PreviewCompare({
       />
 
       {/* Crushed side, clipped to the left of the handle, drawn from the same
-          presented frame (see the effect). Its look is drawn in (CRUSH_LOOK),
-          so the element itself carries no filter. */}
+          presented frame (see the effect). The element itself carries no filter. */}
       <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
         <canvas
           ref={canvasRef}

@@ -20,7 +20,7 @@ const HeroField = dynamic(() => import('@/components/three/HeroField'), { ssr: f
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { assemble, scanFile, type ScanResult } from '@/lib/mp4/scan';
 import { play, soundProps } from '@/lib/sound';
-import { clearStash, stashFile, takeStashedFile } from '@/lib/stash';
+import { clearStash, peekStashedFile, stashFile } from '@/lib/stash';
 
 /*
  * The tool.
@@ -121,6 +121,10 @@ export default function AppPage() {
   const [entitled, setEntitled] = useState(false);
   /* null until /api/me has answered once; the download button waits on it. */
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  /* A restored file arrives with no drop, so the drop-to-phone morph is
+   * skipped for it: nothing to fly from, and the morph plays a second copy
+   * of the video while hiding the real stage until its animation ends. */
+  const [skipMorph, setSkipMorph] = useState(false);
   const router = useRouter();
   /* Which of PATCH_STEPS is showing while the download is being prepared. */
   const [patchStep, setPatchStep] = useState(0);
@@ -200,13 +204,21 @@ export default function AppPage() {
     if (params.get('resume') !== '1') return;
     /*
      * Two ways back here with a stashed file:
-     *   paid=1          from Stripe, via the claim route. The webhook that
-     *                   grants access may still be in flight (a few seconds),
-     *                   so wait for it rather than showing the plans again to
-     *                   someone who has just paid.
+     *   paid=1          from Stripe, via the claim route.
      *   intent=download from sign-in, which the Download button sent them to.
-     *                   Restore the file and press Download for them: entitled,
-     *                   it downloads; not entitled, the plans open.
+     *
+     * THE FILE FIRST. The preview is on screen within a second of arriving,
+     * before anything is asked of the server. The previous order waited for
+     * access before touching the file, which left the reader on the empty
+     * drop zone for as long as the webhook took -- the "back to the upload
+     * screen" that was reported.
+     *
+     * THEN ACCESS, quietly. Straight back from Stripe the webhook that grants
+     * it may still be in flight, so keep asking for a few seconds and start
+     * the download on its own the moment it lands. Back from sign-in with no
+     * payment there is nothing to wait for and nothing to open: the plans
+     * appear only when they press Download themselves, having seen their
+     * own comparison.
      */
     const paid = params.get('paid') === '1';
 
@@ -215,18 +227,23 @@ export default function AppPage() {
 
     let cancelled = false;
     (async () => {
-      let access = await refreshAccess();
-      if (paid && !access.entitled) {
-        for (let i = 0; i < 10 && !cancelled && !access.entitled; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          access = await refreshAccess();
-        }
-      }
-      const f = await takeStashedFile();
+      /* Peek, restore, then clear: the stash is the only copy, and a restore
+       * interrupted by a re-mount must be able to run again. */
+      const f = await peekStashedFile();
       if (cancelled) return;
-      if (!f) { setResumeNote(true); return; }
-      setAutoDownload(true);
+      if (!f) { setResumeNote(true); void refreshAccess(); return; }
+      setSkipMorph(true);
       await take(f);
+      if (cancelled) return;
+      void clearStash();
+
+      let access = await refreshAccess();
+      if (!paid) return;
+      for (let i = 0; i < 12 && !cancelled && !access.entitled; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        access = await refreshAccess();
+      }
+      if (!cancelled && access.entitled) setAutoDownload(true);
     })();
     return () => { cancelled = true; };
     // `take` is stable for the life of the component.
@@ -296,6 +313,7 @@ export default function AppPage() {
     e.preventDefault();
     setDragOver(false);
     const f = e.dataTransfer.files?.[0];
+    setSkipMorph(false);
     if (f) void take(f);
   };
 
@@ -479,6 +497,7 @@ export default function AppPage() {
                       className="sr-only"
                       onChange={(e) => {
                         const f = e.target.files?.[0];
+                        setSkipMorph(false);
                         if (f) void take(f);
                         // Same sound as a drop: the file has landed either way.
                         if (f) play('drop');
@@ -721,7 +740,7 @@ export default function AppPage() {
                 <p className="mx-auto mt-3 max-w-xl text-center text-[11.5px] leading-relaxed text-dim">
                   Preview only — simulated, and the engagement numbers are illustrative. The left
                   side reproduces TikTok&rsquo;s measured 720×1280 / 30fps delivery by drawing your
-                  own video at that resolution and frame rate. Not affiliated with TikTok.
+                  own video at that resolution. Not affiliated with TikTok.
                 </p>
               </section>
 
@@ -845,7 +864,7 @@ export default function AppPage() {
               </button>
             </div>
           )}
-          <DropMorph stage={stage} dropRef={dropRef} stageRef={stageWrapRef} videoSrc={url} />
+          <DropMorph stage={stage} dropRef={dropRef} stageRef={stageWrapRef} videoSrc={url} skip={skipMorph} />
         </main>
       </div>
 
