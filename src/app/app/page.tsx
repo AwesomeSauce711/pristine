@@ -247,7 +247,15 @@ export default function AppPage() {
      * appear only when they press Download themselves, having seen their
      * own comparison.
      */
-    const paid = params.get('paid') === '1';
+    /*
+     * "Paid" is only believed with the cookie the claim and refill routes set
+     * on the way back from Stripe. Without it, a link to /app?resume=1&paid=1
+     * from anywhere on the web would make a subscriber's browser patch their
+     * stashed file and spend a credit on someone else's say-so.
+     */
+    const paidCookie = /(?:^|;\s*)__Host-pristine_paid=1(?:;|$)/.test(document.cookie);
+    const paid = params.get('paid') === '1' && paidCookie;
+    if (paidCookie) document.cookie = '__Host-pristine_paid=; Max-Age=0; Secure; Path=/; SameSite=Lax';
 
     // Drop the flags immediately so a refresh does not try to resume twice.
     window.history.replaceState(null, '', '/app');
@@ -258,7 +266,7 @@ export default function AppPage() {
        * interrupted by a re-mount must be able to run again. */
       const stashed = await peekStashedFile();
       if (cancelled) return;
-      if (!stashed) { setResumeNote(true); void refreshAccess(); return; }
+      if (!stashed) { void clearStash(); setResumeNote(true); void refreshAccess(); return; }
       /* The copy STAYS until a download succeeds: from here the reader may
        * still go to the plans and to Stripe, and the copy must survive that
        * trip too. Clearing it here and re-writing it later was where it was
@@ -445,6 +453,15 @@ export default function AppPage() {
 
       const meta = JSON.parse(res.headers.get('x-pristine-result') ?? '{}');
       const buf = new Uint8Array(await res.arrayBuffer());
+      /* The header describes the body; if they disagree, the file would be
+       * assembled wrong and downloaded anyway. Refuse instead. */
+      const lens = [meta.moovLen, meta.mdatHeaderLen, meta.fillerLen, meta.fillerHeadLen ?? 0];
+      if (!lens.every((n) => Number.isInteger(n) && n >= 0)
+        || meta.moovLen + meta.mdatHeaderLen + (meta.fillerHeadLen ?? 0) !== buf.length) {
+        setError('Something went wrong preparing this file. Please try again.');
+        setStage('error');
+        return;
+      }
       const moov = buf.subarray(0, meta.moovLen);
       const mdatHeader = buf.subarray(meta.moovLen, meta.moovLen + meta.mdatHeaderLen);
       const headLen = Number(meta.fillerHeadLen ?? 0);

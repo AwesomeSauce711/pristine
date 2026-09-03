@@ -30,6 +30,10 @@ import 'server-only';
 export function siteOrigin(req: Request): string {
   const configured = process.env.NEXT_PUBLIC_ORIGIN?.trim();
   if (configured) return configured.replace(/\/+$/, '');
+  /* In production the public address is a known constant. Falling through
+   * to a header here would let a request choose where Stripe sends people
+   * back to. */
+  if (process.env.NODE_ENV === 'production') return 'https://pristine4k.com';
 
   const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
   const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim()

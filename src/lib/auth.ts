@@ -6,6 +6,7 @@ import { cookies, headers } from 'next/headers';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { emailConfigured, sendLoginCode } from '@/lib/email';
+import { requestIp } from '@/lib/ratelimit';
 
 /*
  * auth.ts — accounts, sessions, and email codes.
@@ -99,7 +100,7 @@ export async function createSession(userId: string): Promise<string> {
     userId,
     tokenHash: await sha256Hex(token),
     deviceId,
-    ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    ip: requestIp(h),
     userAgent: h.get('user-agent')?.slice(0, 500) ?? null,
     expiresAt,
   });
@@ -215,7 +216,7 @@ export async function issueLoginCode(rawEmail: string): Promise<SendCodeResult> 
     codeHash: await sha256Hex(`${email}:${code}`),
     purpose: 'signin',
     expiresAt: new Date(Date.now() + CODE_TTL_MINUTES * 60_000),
-    ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    ip: requestIp(h),
   });
 
   await sendLoginEmail(email, code);
@@ -287,7 +288,7 @@ export async function redeemLoginCode(rawEmail: string, code: string): Promise<S
     const created = await db().insert(schema.users).values({
       email,
       emailVerifiedAt: now,
-      signupIp: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+      signupIp: requestIp(h),
       signupUserAgent: h.get('user-agent')?.slice(0, 500) ?? null,
     }).returning();
     user = created[0];

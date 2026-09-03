@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { siteOrigin } from '@/lib/origin';
+import { cookies } from 'next/headers';
 import { currentUser } from '@/lib/auth';
+import { sellingIsOpen } from '@/lib/method-status';
 import { PriceMismatchError, REFILL_AMOUNT_CENTS, refillPriceId, stripe, verifiedRefillPriceId } from '@/lib/billing/stripe';
 import { limit, tooMany } from '@/lib/ratelimit';
 
@@ -38,6 +40,15 @@ export async function POST(req: Request) {
   const rate = await limit(`refill:user:${user.id}`, 10, 3600);
   if (!rate.ok) return tooMany(rate);
 
+  /* The same switch that pauses new subscriptions: no new money for a
+   * method that may not be working. */
+  if (!(await sellingIsOpen())) {
+    return Response.json({
+      code: 'selling_paused',
+      message: 'Top-ups are paused for the moment while we check a possible problem. Please try again shortly.',
+    }, { status: 503 });
+  }
+
   const rows = await db().select().from(schema.entitlements)
     .where(eq(schema.entitlements.userId, user.id)).limit(1);
   const ent = rows[0];
@@ -66,7 +77,10 @@ export async function POST(req: Request) {
 
   let customerId = user.stripeCustomerId;
   if (!customerId) {
-    const customer = await stripe().customers.create({ email: user.email, metadata: { user_id: user.id } });
+    const customer = await stripe().customers.create(
+      { email: user.email, metadata: { user_id: user.id } },
+      { idempotencyKey: `customer:${user.id}` },
+    );
     customerId = customer.id;
     await db().update(schema.users).set({ stripeCustomerId: customerId }).where(eq(schema.users.id, user.id));
   }
@@ -75,6 +89,9 @@ export async function POST(req: Request) {
   const meta = { kind: 'refill', user_id: user.id, count: String(count) };
   const session = await stripe().checkout.sessions.create({
     mode: 'payment',
+    /* Cards only: a delayed-settlement method would pay after the session
+     * completed, and the credit would arrive on an event nothing handles. */
+    payment_method_types: ['card'],
     customer: customerId,
     client_reference_id: user.id,
     line_items: [{ price: priceId, quantity: 1 }],
@@ -96,6 +113,10 @@ export async function POST(req: Request) {
   }, {
     idempotencyKey: `refill:${crypto.randomUUID()}`,
   });
+
+  /* The tool page auto-downloads on the way back only when this is present;
+   * a refill has no claim step, so it is set here, for the session's life. */
+  (await cookies()).set('__Host-pristine_paid', '1', { secure: true, sameSite: 'lax', path: '/', maxAge: 30 * 60 });
 
   return Response.json({ url: session.url });
 }

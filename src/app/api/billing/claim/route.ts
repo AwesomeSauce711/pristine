@@ -29,6 +29,11 @@ import { clientIp } from '@/lib/ratelimit';
  */
 export async function GET(req: Request) {
   const origin = siteOrigin(req);
+  /* A mutating GET, by necessity (it is Stripe's redirect target). It burns
+   * the claim nonce, so it must not be reachable from an <img> on another
+   * site: a browser labels a top-level navigation as such, and nothing else. */
+  const fetchMode = req.headers.get('sec-fetch-mode');
+  if (fetchMode && fetchMode !== 'navigate') return new Response('Not found', { status: 404 });
   const jar = await cookies();
   const nonce = jar.get(CLAIM_COOKIE)?.value;
   const user = await currentUser();
@@ -45,6 +50,13 @@ export async function GET(req: Request) {
 
   // Whatever happened, this nonce is spent.
   if (nonce) jar.delete(CLAIM_COOKIE);
+
+  /* The tool page auto-downloads only when this is present: proof that the
+   * return came through here, not from a link someone else wrote. Readable by
+   * the page (not httpOnly), short-lived, deleted once read. */
+  if (outcome.status === 'signed_in' || outcome.status === 'already_signed_in') {
+    jar.set('__Host-pristine_paid', '1', { secure: true, sameSite: 'lax', path: '/', maxAge: 300 });
+  }
 
   switch (outcome.status) {
     case 'signed_in':

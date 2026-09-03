@@ -3,9 +3,9 @@ import type { NextConfig } from 'next';
 /*
  * Security headers.
  *
- * The Content-Security-Policy is set per-request in `src/proxy.ts`, because it
- * carries a nonce that has to be different every time. Everything here is
- * static and applies to every response.
+ * The Content-Security-Policy is set per-request in `src/proxy.ts` (it differs
+ * between development and production). Everything here is static and applies
+ * to every response.
  */
 
 const securityHeaders = [
@@ -35,7 +35,7 @@ const securityHeaders = [
    */
   {
     key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+    value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   },
 
   /*
@@ -52,6 +52,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  /* next/image is not used anywhere; the optimiser endpoint would otherwise
+   * sit reachable for nothing. */
+  images: { unoptimized: true },
   poweredByHeader: false,
 
   /*

@@ -1,5 +1,5 @@
 import {
-  boolean, index, inet, integer, jsonb, pgTable, smallint, text, timestamp, uniqueIndex, uuid,
+  bigint, boolean, index, inet, integer, jsonb, pgTable, smallint, text, timestamp, uniqueIndex, uuid,
 } from 'drizzle-orm/pg-core';
 
 /*
@@ -182,7 +182,8 @@ export const patchJobs = pgTable('patch_jobs', {
   multiplier: smallint('multiplier').notNull(),
   moovSha256: text('moov_sha256').notNull(),
   moovLen: integer('moov_len').notNull(),
-  outputLen: integer('output_len'),
+  /** Bigint: a 4K file runs past the 2 GB an integer column can hold. */
+  outputLen: bigint('output_len', { mode: 'number' }),
   realSamples: integer('real_samples'),
   phantomSamples: integer('phantom_samples'),
   clonedTrack: boolean('cloned_track'),
@@ -392,4 +393,9 @@ export const patchRefills = pgTable('patch_refills', {
   stripePaymentIntentId: text('stripe_payment_intent_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
-});
+}, (t) => [
+  /* Every access check sums a user's refills for the day and the period. */
+  index('refill_quota_idx').on(t.userId, t.createdAt),
+  /* A refund finds its refill by the PaymentIntent. */
+  index('refill_pi_idx').on(t.stripePaymentIntentId),
+]);

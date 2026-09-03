@@ -1,6 +1,7 @@
+import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
-import { denialMessage, denialStatus, resolveAccess } from '@/lib/entitlement';
-import { clientIp, limit, tooMany } from '@/lib/ratelimit';
+import { denialMessage, denialStatus, resolveAccess, type Denial } from '@/lib/entitlement';
+import { clientIp, limit, requestIp, tooMany } from '@/lib/ratelimit';
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { DEFAULT_MULTIPLIER, buildPatchedMoov } from '@/lib/mp4/patch.server';
 
@@ -34,7 +35,42 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/* Longer than any file a phone or a camera writes; a header claiming more is
+ * not a video, it is a number someone typed. */
+const MAX_PAYLOAD_BYTES = 64 * 1024 ** 3;
+
+/** Read a request body with a hard byte ceiling, whatever Content-Length says. */
+async function readBounded(req: Request, max: number): Promise<Uint8Array | 'too_large' | 'unreadable'> {
+  const reader = req.body?.getReader();
+  if (!reader) return 'unreadable';
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel().catch(() => {});
+        return 'too_large';
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return 'unreadable';
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
+
 export async function POST(req: Request) {
+  /* ---- 0. the cheapest guard first --------------------------------------- */
+
+  const ipLimit = await limit(`patch:ip:${clientIp(req)}`, 60, 60);
+  if (!ipLimit.ok) return tooMany(ipLimit);
+
   /* ---- 1. entitlement, before any work is done ------------------------- */
 
   const access = await resolveAccess();
@@ -44,23 +80,10 @@ export async function POST(req: Request) {
   }
   const user = access.user;
 
-  /*
-   * Burst limit, separate from the daily quota.
-   *
-   * The quota is the commercial limit and is counted from `patch_jobs`, which
-   * is exact but costs two queries. This is the cheap guard in front of it: it
-   * stops a script from issuing hundreds of requests a second, which would
-   * otherwise run the quota check that many times and do real work before being
-   * refused on the last one.
-   *
-   * Generous enough that a person patching a batch of clips by hand will never
-   * see it — nobody legitimately patches more than one video every two seconds.
-   */
-  const burst = await limit(`patch:${user.id}`, 30, 60);
+  /* A person patching a batch by hand never sends more than one every few
+   * seconds; a script does, and the quota check below costs real queries. */
+  const burst = await limit(`patch:${user.id}`, 12, 60);
   if (!burst.ok) return tooMany(burst);
-
-  const ipLimit = await limit(`patch:ip:${clientIp(req)}`, 60, 60);
-  if (!ipLimit.ok) return tooMany(ipLimit);
 
   /* ---- 2. validate the descriptor -------------------------------------- */
 
@@ -71,65 +94,99 @@ export async function POST(req: Request) {
 
   const sane =
     Number.isInteger(ftypLen) && ftypLen >= 8 && ftypLen <= 4096 &&
-    Number.isInteger(payloadStart) && payloadStart >= 8 &&
-    Number.isInteger(payloadLen) && payloadLen > 0 &&
+    Number.isInteger(payloadStart) && payloadStart >= 8 && payloadStart <= MAX_PAYLOAD_BYTES &&
+    Number.isInteger(payloadLen) && payloadLen > 0 && payloadLen <= MAX_PAYLOAD_BYTES &&
     Number.isSafeInteger(payloadStart + payloadLen);
 
   if (!sane) return fail(400, 'bad_descriptor', 'The request was malformed.');
 
+  /*
+   * The body is the file's index, never the file. The client always states
+   * its length; a request that does not is not the client, and is refused
+   * before a byte of it is read. The read itself is bounded as well, so a
+   * length that lies is caught at the ceiling rather than in memory.
+   */
   const declared = Number(req.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_MOOV_BYTES) {
+  if (!Number.isInteger(declared) || declared < 8) {
+    return fail(411, 'length_required', 'The request was malformed.');
+  }
+  if (declared > MAX_MOOV_BYTES) {
     return fail(413, 'moov_too_large',
       "This video's index is larger than we can process. Try a shorter clip.");
   }
 
   /* ---- 3. read the body, bounded --------------------------------------- */
 
-  let moov: Uint8Array;
-  try {
-    const buf = await req.arrayBuffer();
-    if (buf.byteLength > MAX_MOOV_BYTES) {
-      return fail(413, 'moov_too_large', "This video's index is larger than we can process.");
-    }
-    if (buf.byteLength < 8) return fail(400, 'bad_descriptor', 'The request was malformed.');
-    moov = new Uint8Array(buf);
-  } catch {
-    return fail(400, 'bad_body', 'The request body could not be read.');
+  const read = await readBounded(req, MAX_MOOV_BYTES);
+  if (read === 'too_large') {
+    return fail(413, 'moov_too_large', "This video's index is larger than we can process.");
   }
+  if (read === 'unreadable') return fail(400, 'bad_body', 'The request body could not be read.');
+  if (read.length < 8) return fail(400, 'bad_descriptor', 'The request was malformed.');
+  const moov = read;
 
-  /* ---- 4. patch --------------------------------------------------------- */
+  /* ---- 4. reserve the credit ------------------------------------------- */
 
   const startedAt = Date.now();
   const moovSha256 = await sha256Hex(moov);
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
+  const ip = requestIp(req.headers);
 
   /*
-   * A failed attempt must never cost a credit. Recording the outcome — rather
-   * than incrementing a counter up front — is what makes that automatic: quota
-   * counts only rows with countsAgainstQuota, and failures are written false.
+   * RESERVE, THEN WORK. The usage row is written BEFORE the patch, under a
+   * per-user lock, with the quota re-counted inside that lock. Two requests
+   * arriving together therefore take turns: the second sees the first's row
+   * and is refused at the cap instead of both slipping through. And because
+   * the row exists before the file is built, no failure afterwards -- a
+   * database blip, a crash -- can hand out an uncounted patch: the worst
+   * case is a row left 'pending', which counts. A patch that fails is
+   * released below, so a failed attempt never costs a credit.
    */
-  const record = async (
-    status: 'completed' | 'failed',
-    extra: Partial<typeof schema.patchJobs.$inferInsert> = {},
-  ) => {
-    try {
-      await db().insert(schema.patchJobs).values({
+  type Reserved = { id: string; dailyRemaining: number } | { denial: Denial };
+  let reserved: Reserved;
+  try {
+    reserved = await db().transaction(async (tx): Promise<Reserved> => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${user.id}))`);
+      const fresh = await resolveAccess(tx);
+      if (!fresh.ok) return { denial: fresh.denial ?? 'no_subscription' };
+      const [row] = await tx.insert(schema.patchJobs).values({
         userId: user.id,
-        status,
-        deviceId: access.user?.deviceId ?? null,
+        status: 'pending',
+        deviceId: user.deviceId ?? null,
         ip,
         multiplier: DEFAULT_MULTIPLIER,
         moovSha256,
         moovLen: moov.length,
-        durationMs: Date.now() - startedAt,
-        countsAgainstQuota: status === 'completed',
-        ...extra,
-      });
-    } catch (e) {
-      // Losing an audit row must not lose the customer their patch.
-      console.error('[patch] could not record usage', e);
+        countsAgainstQuota: true,
+      }).returning({ id: schema.patchJobs.id });
+      return { id: row.id, dailyRemaining: fresh.dailyRemaining };
+    });
+  } catch (e) {
+    console.error('[patch] could not reserve usage', e);
+    return fail(500, 'internal',
+      "Something went wrong on our end, and this hasn't used one of your patches.");
+  }
+  if ('denial' in reserved) {
+    return fail(denialStatus(reserved.denial), reserved.denial, denialMessage(reserved.denial));
+  }
+  const jobId = reserved.id;
+
+  const settle = async (
+    values: Partial<typeof schema.patchJobs.$inferInsert>,
+  ): Promise<boolean> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await db().update(schema.patchJobs)
+          .set({ ...values, durationMs: Date.now() - startedAt })
+          .where(eq(schema.patchJobs.id, jobId));
+        return true;
+      } catch (e) {
+        console.error(`[patch] could not settle job ${jobId} (attempt ${attempt + 1})`, e);
+      }
     }
+    return false;
   };
+
+  /* ---- 5. patch --------------------------------------------------------- */
 
   try {
     const r = buildPatchedMoov({ moov, ftypLen, payloadStart, payloadLen });
@@ -139,7 +196,10 @@ export async function POST(req: Request) {
     body.set(r.mdatHeader, r.moov.length);
     body.set(r.fillerHead, r.moov.length + r.mdatHeader.length);
 
-    await record('completed', {
+    /* If this write fails the row stays 'pending' -- still counted, which is
+     * the safe side -- and the customer still gets the file they paid for. */
+    await settle({
+      status: 'completed',
       outputLen: r.outputLen,
       realSamples: r.realSamples,
       phantomSamples: r.phantomSamples,
@@ -163,21 +223,20 @@ export async function POST(req: Request) {
           clonedTrack: r.clonedTrack,
           neutralisedEdts: r.neutralisedEdts,
           multiplier: DEFAULT_MULTIPLIER,
-          dailyRemaining: Math.max(0, access.dailyRemaining - 1),
+          dailyRemaining: Math.max(0, reserved.dailyRemaining - 1),
         }),
       },
     });
   } catch (e) {
     /*
-     * Mp4Error messages are written to be shown to a user as-is — "this video
-     * has no audio track, so there is nothing to use as a decoy" is more useful
-     * than any generic wording we could substitute.
+     * A failed attempt must never cost a credit: the reservation is released.
+     * Mp4Error messages are written to be shown to a user as-is.
      */
     if (e instanceof Mp4Error) {
-      await record('failed', { errorCode: e.code });
+      await settle({ status: 'rejected', countsAgainstQuota: false, errorCode: e.code });
       return fail(422, e.code, e.message);
     }
-    await record('failed', { errorCode: 'internal' });
+    await settle({ status: 'failed', countsAgainstQuota: false, errorCode: 'internal' });
     console.error('[patch] unexpected failure', e);
     return fail(500, 'internal',
       "Something went wrong on our end, and this hasn't used one of your patches.");

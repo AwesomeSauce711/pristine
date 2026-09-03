@@ -243,10 +243,11 @@ export function parseStsc(b: Uint8Array, box: Box): StscEntry[] {
 
 export function offsetBoxes(moov: Uint8Array): Box[] {
   const found: Box[] = [];
-  const walk = (s: number, e: number) => {
+  const walk = (s: number, e: number, depth = 0) => {
+    if (depth > 16) return;   // no real file nests this deep; a crafted one must not recurse forever
     for (const k of children(moov, s, e)) {
       if (k.type === 'stco' || k.type === 'co64') found.push(k);
-      else if (CONTAINERS.has(k.type)) walk(k.pos + 8, k.pos + k.size);
+      else if (CONTAINERS.has(k.type)) walk(k.pos + 8, k.pos + k.size, depth + 1);
     }
   };
   walk(8, moov.length);

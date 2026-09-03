@@ -107,11 +107,14 @@ console.log('\nentitlement mapping\n');
 }
 
 {
-  // The card blipped. Stripe is retrying. They have paid before.
-  const e = computeEntitlement(base({ status: 'past_due', currentPeriodEnd: hours(-2) }));
+  // The card blipped. Stripe is retrying. They have paid before. Stripe has
+  // already opened the (unpaid) next period: it started two hours ago.
+  const e = computeEntitlement(base({ status: 'past_due', currentPeriodStart: hours(-2), currentPeriodEnd: days(28) }));
   ok('past_due keeps access while Stripe retries', hasAccess(e, NOW) && e.state === 'grace');
-  ok('past_due access ends period_end + grace',
+  ok('past_due access ends where the paid period ended, plus grace',
     e.accessUntil.getTime() === hours(-2).getTime() + PLANS.month.graceHours * 3600_000);
+  ok('past_due never grants the unpaid period itself',
+    e.accessUntil.getTime() < days(28).getTime());
 }
 
 /* ---- the states that must NOT grant access ------------------------------ */
@@ -140,7 +143,7 @@ ok('a subscription with no tier grants nothing',
 {
   // A trial whose very first charge failed. Grace here would be free days on
   // top of the trial, which is a farming route rather than a courtesy.
-  const e = computeEntitlement(base({ status: 'past_due', firstPaidAt: null, currentPeriodEnd: hours(-1) }));
+  const e = computeEntitlement(base({ status: 'past_due', firstPaidAt: null, currentPeriodStart: hours(-1), currentPeriodEnd: days(28) }));
   ok('past_due with no successful payment ever gets NO grace',
     e.accessUntil.getTime() === hours(-1).getTime() && !hasAccess(e, NOW),
     e.accessUntil.toISOString());

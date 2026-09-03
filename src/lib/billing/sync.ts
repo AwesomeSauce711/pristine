@@ -199,14 +199,28 @@ export async function recomputeEntitlement(userId: string): Promise<void> {
     .onConflictDoUpdate({ target: schema.entitlements.userId, set: value });
 }
 
-/** Revoke immediately — a dispute or a full refund. Survives later resyncs. */
-export async function revokeEntitlement(userId: string, reason: string): Promise<void> {
+/** Reasons that outrank a plain refund: never overwritten by one. */
+const STICKY_REVOKES = new Set(['dispute', 'early_fraud_warning']);
+
+/**
+ * Revoke immediately — a dispute, a fraud warning or a full refund. Survives
+ * later resyncs. `at` is the event's own time, so a webhook delivered late
+ * cannot revoke a subscription bought after the refund it describes. A refund
+ * arriving after a dispute or fraud warning (the fraud handler's own refund
+ * does exactly that) keeps the stronger reason.
+ */
+export async function revokeEntitlement(userId: string, reason: string, at: Date = new Date()): Promise<void> {
+  const current = await db().select({ reason: schema.entitlements.revokedReason })
+    .from(schema.entitlements).where(eq(schema.entitlements.userId, userId)).limit(1);
+  const standing = current[0]?.reason ?? null;
+  if (standing && STICKY_REVOKES.has(standing) && !STICKY_REVOKES.has(reason)) return;
+
   await db().insert(schema.entitlements)
     .values({
       userId,
       state: 'revoked',
       accessUntil: new Date(0),
-      revokedAt: new Date(),
+      revokedAt: at,
       revokedReason: reason,
       updatedAt: new Date(),
     })
@@ -215,7 +229,7 @@ export async function revokeEntitlement(userId: string, reason: string): Promise
       set: {
         state: 'revoked',
         accessUntil: new Date(0),
-        revokedAt: new Date(),
+        revokedAt: at,
         revokedReason: reason,
         updatedAt: new Date(),
       },

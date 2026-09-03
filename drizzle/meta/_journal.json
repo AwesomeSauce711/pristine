@@ -43,6 +43,13 @@
       "when": 1788403455248,
       "tag": "0005_cloudy_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788450017157,
+      "tag": "0006_narrow_living_tribunal",
+      "breakpoints": true
     }
   ]
 }

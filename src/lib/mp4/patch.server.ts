@@ -261,7 +261,13 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
    * which is what keeps the box tree self-consistent.
    */
   const decoyStblPos = stbl.pos;
-  const rebuild = (b: Uint8Array, pos: number, size: number): Uint8Array => {
+  /* Containers nest a handful deep in any real file. A crafted index that
+   * nests thousands deep would otherwise recurse until the stack gave out. */
+  const MAX_DEPTH = 16;
+  const rebuild = (b: Uint8Array, pos: number, size: number, depth = 0): Uint8Array => {
+    if (depth > MAX_DEPTH) {
+      throw new Mp4Error('bad_structure', "This video's index is malformed.");
+    }
     const type = b[pos + 4] !== undefined
       ? String.fromCharCode(b[pos + 4], b[pos + 5], b[pos + 6], b[pos + 7])
       : '';
@@ -287,7 +293,7 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
     }
     if (!CONTAINERS.has(type)) return b.subarray(pos, pos + size);
     const parts: Uint8Array[] = [];
-    for (const k of children(b, pos + 8, pos + size)) parts.push(rebuild(b, k.pos, k.size));
+    for (const k of children(b, pos + 8, pos + size)) parts.push(rebuild(b, k.pos, k.size, depth + 1));
     if (!parts.length) return b.subarray(pos, pos + size);
     return buildBox(type, cat(parts));
   };
@@ -412,6 +418,12 @@ function buildSilentTrak(
   const duration = v1 ? u64(moov, mvhd.pos + 8 + 24) : u32(moov, mvhd.pos + 8 + 16);
   const seconds = timescale > 0 ? duration / timescale : 0;
   const frames = Math.max(1, Math.ceil((seconds * AAC_RATE) / AAC_FRAME));
+  /* The movie header is a field in an untrusted file. A duration that asks
+   * for more silence than the clone path would accept as real audio is not a
+   * video anyone made; refuse it before a byte is allocated. */
+  if (!Number.isFinite(frames) || frames > MAX_REAL_SAMPLES) {
+    throw new Mp4Error('too_long', 'This video is longer than we can process. Try a shorter clip.');
+  }
   const mediaDuration = frames * AAC_FRAME;
   const trackDuration = Math.round((mediaDuration / AAC_RATE) * timescale);
 

@@ -36,6 +36,19 @@ export async function POST(req: Request) {
 
   const perIp = await limit(`code:ip:${clientIp(req)}`, 10, 3600);
   if (!perIp.ok) return tooMany(perIp);
+  /*
+   * A ceiling on the whole site, not on anyone in particular. Every code is
+   * an email, and the email provider has a quota; a script rotating addresses
+   * across a handful of IPs could burn a day's quota in an hour and sign-in
+   * would be dead for everyone until it reset. Three hundred an hour is far
+   * above any honest launch day and is logged when it trips, so it is a
+   * signal, not a silent cap.
+   */
+  const everyone = await limit('code:global', 300, 3600);
+  if (!everyone.ok) {
+    console.warn('[auth] site-wide sign-in code ceiling reached; refusing new codes for a while');
+    return tooMany(everyone);
+  }
 
   try {
     const result = await issueLoginCode(email);

@@ -75,7 +75,15 @@ const DENIED = (denial: Denial): Access => ({
  * locks out a customer. Counting rows is exact, and the index on
  * `(user_id, created_at)` makes it cheap.
  */
-export async function resolveAccess(): Promise<Access> {
+/*
+ * Anything that can run a select: the database handle, or a transaction, so
+ * the patch route can re-count the quota INSIDE the lock it holds while it
+ * reserves a credit -- on the same connection, which is what makes the
+ * count and the reservation one atomic step.
+ */
+type DbReader = Pick<ReturnType<typeof db>, 'select'>;
+
+export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
   /*
    * Development unlock, checked first so the whole flow works with no database
    * and no Stripe. Guarded three ways in dev-access.ts and impossible in a
@@ -101,7 +109,7 @@ export async function resolveAccess(): Promise<Access> {
   const user = await currentUser();
   if (!user) return DENIED('not_signed_in');
 
-  const rows = await db()
+  const rows = await exec
     .select()
     .from(schema.entitlements)
     .where(and(
@@ -115,7 +123,7 @@ export async function resolveAccess(): Promise<Access> {
   if (!ent) {
     // Distinguish "never subscribed" from "was revoked", because the two need
     // very different messages: one is a sales page, the other is support.
-    const any = await db().select({ state: schema.entitlements.state })
+    const any = await exec.select({ state: schema.entitlements.state })
       .from(schema.entitlements)
       .where(eq(schema.entitlements.userId, user.id)).limit(1);
     if (any[0]?.state === 'revoked') return { ...DENIED('revoked'), user };
@@ -124,14 +132,14 @@ export async function resolveAccess(): Promise<Access> {
   }
 
   const since = new Date(Date.now() - 86_400_000);
-  const [daily] = await db().select({ n: count() }).from(schema.patchJobs)
+  const [daily] = await exec.select({ n: count() }).from(schema.patchJobs)
     .where(and(
       eq(schema.patchJobs.userId, user.id),
       eq(schema.patchJobs.countsAgainstQuota, true),
       gt(schema.patchJobs.createdAt, since),
     ));
 
-  const [period] = await db().select({ n: count() }).from(schema.patchJobs)
+  const [period] = await exec.select({ n: count() }).from(schema.patchJobs)
     .where(and(
       eq(schema.patchJobs.userId, user.id),
       eq(schema.patchJobs.countsAgainstQuota, true),
@@ -145,14 +153,14 @@ export async function resolveAccess(): Promise<Access> {
    * and the same again to the period, so a customer who has bought one is
    * never stopped by the period cap for having used the day's.
    */
-  const [refillDay] = await db().select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+  const [refillDay] = await exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
     .from(schema.patchRefills)
     .where(and(
       eq(schema.patchRefills.userId, user.id),
       sql`${schema.patchRefills.revokedAt} is null`,
       gt(schema.patchRefills.createdAt, since),
     ));
-  const [refillPeriod] = await db().select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+  const [refillPeriod] = await exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
     .from(schema.patchRefills)
     .where(and(
       eq(schema.patchRefills.userId, user.id),
@@ -163,7 +171,7 @@ export async function resolveAccess(): Promise<Access> {
   /* The window is rolling: the day's allowance comes back 24 hours after the
    * earliest patch still inside it. That instant is the reset the UI counts
    * down to; with nothing used there is nothing to reset. */
-  const [first] = await db().select({ at: sql<string | null>`min(${schema.patchJobs.createdAt})` })
+  const [first] = await exec.select({ at: sql<string | null>`min(${schema.patchJobs.createdAt})` })
     .from(schema.patchJobs)
     .where(and(
       eq(schema.patchJobs.userId, user.id),

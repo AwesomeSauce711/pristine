@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { isIP } from 'node:net';
+
 /*
  * ratelimit.ts — a sliding-window limiter, shared across instances when Redis
  * is configured and per-instance when it is not.
@@ -155,12 +157,23 @@ export function hit(key: string, limit: number, windowSec: number): RateResult {
 }
 
 /** Best-effort client address. Spoofable, so never use it for authorisation. */
+/*
+ * The client's address as the platform's proxy reports it -- the FIRST hop of
+ * x-forwarded-for, which Railway overwrites with the true client (verified:
+ * spoofed values never changed the per-IP limit key). Anything that is not
+ * an IP address is treated as unknown rather than passed on: several tables
+ * store it in an inet column, and a garbage value there would turn an insert
+ * into a 500 on sign-in or checkout.
+ */
+export function requestIp(headers: { get(name: string): string | null }): string | null {
+  const raw = headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || headers.get('x-real-ip')?.trim()
+    || '';
+  return raw && isIP(raw) ? raw : null;
+}
+
 export function clientIp(req: Request): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
+  return requestIp(req.headers) ?? 'unknown';
 }
 
 export const tooMany = (r: RateResult) =>

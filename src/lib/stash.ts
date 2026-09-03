@@ -157,7 +157,12 @@ export async function peekStashedFile(): Promise<File | null> {
     const row = await tx<StashedFile>(db, 'readonly', (s) =>
       s.get(KEY) as IDBRequest<StashedFile>);
     if (!row || !row.file) return null;
-    if (Date.now() - row.savedAt > TTL_MS) return null;
+    if (Date.now() - row.savedAt > TTL_MS) {
+      /* Past its time: remove it rather than leave a copy of someone's video
+       * sitting on disk for a return that is not coming. */
+      await tx(db, 'readwrite', (s) => s.delete(KEY)).catch(() => {});
+      return null;
+    }
     return row.file;
   } finally {
     db.close();

@@ -119,9 +119,18 @@ export async function POST(req: Request) {
    * limited it. Anonymous callers can now create Stripe Customers, Checkout
    * Sessions and database rows, so the limit has to be explicit.
    */
-  if (!user) {
-    const rate = await limit(`checkout:ip:${ip}`, 8, 3600);
-    if (!rate.ok) return tooMany(rate);
+  /*
+   * Per person, since everyone here is signed in: a bound on Checkout
+   * Sessions, consent rows and pending rows, and a one-at-a-time guard so a
+   * double-click cannot open two sessions that both complete.
+   */
+  {
+    const hourly = await limit(`checkout:user:${user.id}`, 8, 3600);
+    if (!hourly.ok) return tooMany(hourly);
+    const once = await limit(`checkout:once:${user.id}`, 1, 10);
+    if (!once.ok) return tooMany(once);
+    const perIp = await limit(`checkout:ip:${ip}`, 20, 3600);
+    if (!perIp.ok) return tooMany(perIp);
   }
 
   /* ---- refuse to sell someone a second subscription -------------------- */
@@ -169,7 +178,7 @@ export async function POST(req: Request) {
       const customer = await stripe().customers.create({
         email: user.email,
         metadata: { user_id: user.id },
-      });
+      }, { idempotencyKey: `customer:${user.id}` });
       customerId = customer.id;
       await db().update(schema.users)
         .set({ stripeCustomerId: customerId })
@@ -179,7 +188,37 @@ export async function POST(req: Request) {
 
   /* ---- record consent -------------------------------------------------- */
 
-  const firstChargeAt = new Date(Date.now() + plan.trialDays * 86_400_000);
+  /*
+   * ONE FREE TRIAL PER PERSON, enforced here rather than promised. A trial
+   * already taken -- by this account, or by a card this account's Customer
+   * holds that took one under another account -- is not offered again: the
+   * plan is sold at its price from day one, and the disclosure, the consent
+   * record and Stripe's page all say so. The grant ledger is written by the
+   * webhook when a trial starts (recordTrialGrant).
+   */
+  let trialDays = plan.trialDays;
+  if (trialDays > 0) {
+    const byUser = await db().select({ id: schema.trialGrants.id }).from(schema.trialGrants)
+      .where(eq(schema.trialGrants.userId, user.id)).limit(1);
+    let byCard = false;
+    if (!byUser.length && customerId) {
+      try {
+        const methods = await stripe().paymentMethods.list({ customer: customerId, type: 'card', limit: 20 });
+        const prints = methods.data.map((m) => m.card?.fingerprint).filter((f): f is string => !!f);
+        if (prints.length) {
+          const hit = await db().select({ id: schema.trialGrants.id }).from(schema.trialGrants)
+            .where(inArray(schema.trialGrants.cardFingerprint, prints)).limit(1);
+          byCard = hit.length > 0;
+        }
+      } catch (e) {
+        console.error('[checkout] could not check card history for the trial rule', e);
+      }
+    }
+    if (byUser.length || byCard) trialDays = 0;
+  }
+  const offer = { ...plan, trialDays };
+
+  const firstChargeAt = new Date(Date.now() + trialDays * 86_400_000);
   /*
    * The Price Stripe will charge must be the price the customer is being
    * shown; see verifiedPriceIdForPlan. A mismatch is our configuration
@@ -201,14 +240,14 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  const text = disclosure(plan, firstChargeAt);
+  const text = disclosure(offer, firstChargeAt);
   const origin = siteOrigin(req);
 
   const consent = await db().insert(schema.consents).values({
     // Null for an anonymous checkout; the webhook backfills it once Stripe has
     // told us which email paid. The column is nullable for exactly this.
     userId: user?.id ?? null,
-    kind: plan.trialDays > 0 ? 'trial_negative_option' : 'immediate_charge',
+    kind: trialDays > 0 ? 'trial_negative_option' : 'immediate_charge',
     priceId,
     disclosureText: text,
     disclosureSha256: await sha256Hex(text),
@@ -249,9 +288,9 @@ export async function POST(req: Request) {
     payment_method_collection: 'always',
 
     subscription_data: {
-      ...(plan.trialDays > 0
+      ...(trialDays > 0
         ? {
-            trial_period_days: plan.trialDays,
+            trial_period_days: trialDays,
             trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
           }
         : {}),

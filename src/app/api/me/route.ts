@@ -1,5 +1,6 @@
 import { devUnlockAvailable } from '@/lib/dev-access';
 import { resolveAccess } from '@/lib/entitlement';
+import { clientIp, limit, tooMany } from '@/lib/ratelimit';
 import { REFILL_AMOUNT_CENTS, refillPriceId } from '@/lib/billing/stripe';
 
 /*
@@ -12,7 +13,9 @@ import { REFILL_AMOUNT_CENTS, refillPriceId } from '@/lib/billing/stripe';
  *
  * Also polled by /welcome while the Stripe webhook lands.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const rate = await limit(`me:ip:${clientIp(req)}`, 120, 60);
+  if (!rate.ok) return tooMany(rate);
   const access = await resolveAccess();
 
   return Response.json(

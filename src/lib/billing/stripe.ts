@@ -69,24 +69,39 @@ export class PriceMismatchError extends Error {
 
 const PRICE_CHECK_TTL_MS = 10 * 60_000;
 const priceChecked = new Map<string, number>();
+/* A failure is remembered briefly too, so an outage or a mismatch does not
+ * turn every checkout and status hit into a fresh round of Stripe calls. */
+const PRICE_FAIL_TTL_MS = 30_000;
+const priceFailed = new Map<string, { at: number; error: unknown }>();
+
+function rememberedFailure(priceId: string): void {
+  const f = priceFailed.get(priceId);
+  if (f && Date.now() - f.at < PRICE_FAIL_TTL_MS) throw f.error;
+}
 
 export async function verifiedPriceIdForPlan(id: PlanId): Promise<string> {
   const priceId = priceIdForPlan(id);
   const at = priceChecked.get(priceId);
   if (at && Date.now() - at < PRICE_CHECK_TTL_MS) return priceId;
+  rememberedFailure(priceId);
 
-  const plan = PLANS[id];
-  const price = await stripe().prices.retrieve(priceId);
-  const problems: string[] = [];
-  if (!price.active) problems.push('the Price is archived');
-  if (price.unit_amount !== plan.amount) {
-    problems.push(`Stripe charges ${(price.unit_amount ?? 0) / 100} and the site says ${plan.amount / 100}`);
+  try {
+    const plan = PLANS[id];
+    const price = await stripe().prices.retrieve(priceId);
+    const problems: string[] = [];
+    if (!price.active) problems.push('the Price is archived');
+    if (price.unit_amount !== plan.amount) {
+      problems.push(`Stripe charges ${(price.unit_amount ?? 0) / 100} and the site says ${plan.amount / 100}`);
+    }
+    if (price.currency !== 'usd') problems.push(`currency is ${price.currency}, not usd`);
+    if (price.recurring?.interval !== plan.interval) {
+      problems.push(`interval is ${price.recurring?.interval ?? 'one-off'}, not ${plan.interval}`);
+    }
+    if (problems.length) throw new PriceMismatchError(id, problems.join('; '));
+  } catch (error) {
+    priceFailed.set(priceId, { at: Date.now(), error });
+    throw error;
   }
-  if (price.currency !== 'usd') problems.push(`currency is ${price.currency}, not usd`);
-  if (price.recurring?.interval !== plan.interval) {
-    problems.push(`interval is ${price.recurring?.interval ?? 'one-off'}, not ${plan.interval}`);
-  }
-  if (problems.length) throw new PriceMismatchError(id, problems.join('; '));
 
   priceChecked.set(priceId, Date.now());
   return priceId;

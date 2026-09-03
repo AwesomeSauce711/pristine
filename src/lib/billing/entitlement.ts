@@ -67,11 +67,12 @@ const addHours = (d: Date, h: number) => new Date(d.getTime() + h * 3600_000);
  *   period. Cutting them off at the moment they click cancel is both wrong and
  *   a reliable way to convert a quiet cancellation into a chargeback.
  *
- * - **`past_due` keeps access, for a while.** Stripe does not advance
- *   `current_period_end` when a renewal fails, so `periodEnd + grace` is
- *   naturally "the period they paid for, plus a tail while retries run". Cutting
- *   a paying customer off over a transient decline generates support load and
- *   disputes.
+ * - **`past_due` keeps access, for a while.** Stripe advances the period when
+ *   it issues the renewal invoice, so on a failed renewal `current_period_start`
+ *   is where the paid period ended; access is that plus a tail while retries
+ *   run. Cutting a paying customer off over a transient decline generates
+ *   support load and disputes; granting the unpaid period would be a free
+ *   period per declined card.
  *
  * - **Grace requires having paid at least once.** Without this, a trial whose
  *   very first charge fails would collect 24–72 free hours on top of the trial,
@@ -137,8 +138,23 @@ export function computeEntitlement(sub: SubscriptionFacts | null): ComputedEntit
     }
 
     case 'past_due': {
-      if (!periodEnd) return NO_ACCESS;
-      return { ...caps, state: 'grace', inTrial: false, accessUntil: addHours(periodEnd, grace) };
+      /*
+       * When a renewal fails Stripe has ALREADY advanced the period: the
+       * current one is the unpaid one, and its start is where the paid one
+       * ended. Access is that point plus the grace tail -- a day or three
+       * while the retries run -- and never the unpaid period itself, which
+       * for a weekly plan would be a free week per declined card, and for a
+       * trial whose first charge failed, a free month. A subscription that
+       * never paid at all gets no tail: the paid period is empty.
+       */
+      const paidThrough = sub.currentPeriodStart ?? periodEnd;
+      if (!paidThrough) return NO_ACCESS;
+      return {
+        ...caps,
+        state: 'grace',
+        inTrial: false,
+        accessUntil: sub.firstPaidAt ? addHours(paidThrough, grace) : paidThrough,
+      };
     }
 
     case 'canceled':

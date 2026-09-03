@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, inArray } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import { db, schema } from '@/db';
 import { revokeAllSessions } from '@/lib/auth';
@@ -71,6 +71,14 @@ export async function POST(req: Request) {
 
   /* ---- idempotency ------------------------------------------------------ */
 
+  /* A test event on the live endpoint (or the reverse) is misconfiguration,
+   * not traffic. Refuse it rather than write sandbox facts into live tables. */
+  const liveKey = (process.env.STRIPE_SECRET_KEY ?? '').startsWith('sk_live_');
+  if (event.livemode !== liveKey) {
+    console.error(`[webhook] ${event.type} livemode=${event.livemode} does not match the configured key`);
+    return new Response('mode mismatch', { status: 400 });
+  }
+
   const inserted = await db().insert(schema.stripeEvents)
     .values({
       id: event.id,
@@ -100,7 +108,16 @@ export async function POST(req: Request) {
     const [prior] = await db().select().from(schema.stripeEvents)
       .where(eq(schema.stripeEvents.id, event.id)).limit(1);
 
-    if (prior?.status !== 'failed') {
+    /*
+     * Retake a failed row -- and a row stuck in 'processing': a crash or a
+     * platform timeout mid-handler never reaches the catch below, and without
+     * this every retry Stripe sends would be waved through as a duplicate.
+     * Handlers re-fetch from Stripe and are idempotent, so retaking a
+     * half-done one is safe.
+     */
+    const stuck = prior?.status === 'processing'
+      && Date.now() - prior.receivedAt.getTime() > 10 * 60_000;
+    if (prior?.status !== 'failed' && !stuck) {
       return Response.json({ received: true, duplicate: true });
     }
 
@@ -163,7 +180,7 @@ async function handle(event: Stripe.Event): Promise<void> {
       if (userId && customerId) {
         await db().update(schema.users)
           .set({ stripeCustomerId: customerId })
-          .where(eq(schema.users.id, userId));
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.stripeCustomerId)));
       }
       if (s.metadata?.consent_id && userId) {
         await db().update(schema.consents)
@@ -194,10 +211,12 @@ async function handle(event: Stripe.Event): Promise<void> {
        * Stripe made. Without this, every later customer.* event for this buyer
        * resolves to nobody.
        */
+      /* Only ever fills an empty slot: an account's Customer is never re-pointed
+       * by a checkout that merely carried its email. */
       if (effectiveUserId && customerId) {
         await db().update(schema.users)
           .set({ stripeCustomerId: customerId })
-          .where(eq(schema.users.id, effectiveUserId));
+          .where(and(eq(schema.users.id, effectiveUserId), isNull(schema.users.stripeCustomerId)));
       }
 
       const subId = typeof s.subscription === 'string' ? s.subscription : s.subscription?.id;
@@ -259,11 +278,21 @@ async function handle(event: Stripe.Event): Promise<void> {
       /* A refunded refill takes its allowance with it. Any refund, not only a
        * full one: it is 99 cents, and a partial refund of that is a mistake. */
       const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      let refillRows = 0;
       if (pi) {
-        await db().update(schema.patchRefills)
+        const revokedRefills = await db().update(schema.patchRefills)
           .set({ revokedAt: at })
-          .where(and(eq(schema.patchRefills.stripePaymentIntentId, pi), isNull(schema.patchRefills.revokedAt)));
+          .where(and(eq(schema.patchRefills.stripePaymentIntentId, pi), isNull(schema.patchRefills.revokedAt)))
+          .returning({ id: schema.patchRefills.id });
+        refillRows = revokedRefills.length;
       }
+      /*
+       * A refunded 99-cent top-up is a refunded top-up, nothing more: its own
+       * row is revoked above and the plan is untouched. The charge carries the
+       * refill's metadata (copied from the PaymentIntent), and the ledger row
+       * says the same thing.
+       */
+      const isRefill = charge.metadata?.kind === 'refill' || refillRows > 0;
       const customerId = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
       const userId = customerId ? await userIdForCustomer(customerId) : null;
 
@@ -272,8 +301,8 @@ async function handle(event: Stripe.Event): Promise<void> {
           .set({ amountRefundedCents: charge.amount_refunded })
           .where(eq(schema.invoices.stripeChargeId, charge.id));
       }
-      if (userId && charge.amount_refunded >= charge.amount) {
-        await revokeEntitlement(userId, 'refund');
+      if (!isRefill && userId && charge.amount_refunded >= charge.amount) {
+        await revokeEntitlement(userId, 'refund', at);
       }
       return;
     }
@@ -300,8 +329,14 @@ async function handle(event: Stripe.Event): Promise<void> {
         openedAt: at,
       }).onConflictDoNothing();
 
-      if (userId) {
-        await revokeEntitlement(userId, 'dispute');
+      /*
+       * An inquiry ("warning_*") is the bank asking a question, not a
+       * chargeback; the customer has taken nothing. Evidence is filed either
+       * way, but access is pulled only for a real dispute.
+       */
+      const inquiry = d.status.startsWith('warning_');
+      if (userId && !inquiry) {
+        await revokeEntitlement(userId, 'dispute', at);
         await db().update(schema.users)
           .set({ blockedAt: new Date(), blockedReason: 'dispute' })
           .where(eq(schema.users.id, userId));
@@ -341,8 +376,9 @@ async function handle(event: Stripe.Event): Promise<void> {
         .set({ status: d.status, closedAt: at })
         .where(eq(schema.disputes.stripeDisputeId, d.id));
 
-      // Only a win restores them; a loss leaves the revocation standing.
-      if (userId && d.status === 'won') {
+      // A win restores them, and so does an inquiry that closed without
+      // becoming a dispute; a loss leaves the revocation standing.
+      if (userId && (d.status === 'won' || d.status === 'warning_closed')) {
         await db().update(schema.users)
           .set({ blockedAt: null, blockedReason: null })
           .where(eq(schema.users.id, userId));
@@ -368,8 +404,26 @@ async function handle(event: Stripe.Event): Promise<void> {
       }
       const userId = await userIdForCharge(chargeId);
       if (userId) {
-        await revokeEntitlement(userId, 'early_fraud_warning');
+        await revokeEntitlement(userId, 'early_fraud_warning', at);
+        await db().update(schema.users)
+          .set({ blockedAt: new Date(), blockedReason: 'early_fraud_warning' })
+          .where(eq(schema.users.id, userId));
         await revokeAllSessions(userId);
+        /* Leaving the subscription running invites the dispute the warning
+         * predicts. Ending it is the refund's natural companion. */
+        const live = await db().select({ id: schema.subscriptions.stripeSubscriptionId })
+          .from(schema.subscriptions)
+          .where(and(
+            eq(schema.subscriptions.userId, userId),
+            inArray(schema.subscriptions.status, ['trialing', 'active', 'past_due']),
+          ));
+        for (const sub of live) {
+          try {
+            await stripe().subscriptions.cancel(sub.id);
+          } catch (e) {
+            console.error(`[webhook] could not cancel ${sub.id} after a fraud warning`, e);
+          }
+        }
       }
       return;
     }
@@ -402,12 +456,46 @@ function subscriptionIdOf(inv: Stripe.Invoice): string | null {
   return null;
 }
 
+/*
+ * The user behind a charge. The invoices ledger answers when the charge id
+ * was recorded with the invoice; current API versions no longer put the
+ * charge on the invoice object, so that column is often empty, and a
+ * dispute that could not find its customer would revoke nobody. So the
+ * charge itself is asked next: its Customer is ours (set on every account
+ * before its first checkout), and a refill charge names its user in
+ * metadata. Every path here is a lookup by an id Stripe gave us.
+ */
 async function userIdForCharge(chargeId: string | undefined): Promise<string | null> {
   if (!chargeId) return null;
   const rows = await db().select({ userId: schema.invoices.userId })
     .from(schema.invoices)
     .where(eq(schema.invoices.stripeChargeId, chargeId)).limit(1);
-  return rows[0]?.userId ?? null;
+  if (rows[0]?.userId) return rows[0].userId;
+
+  try {
+    const charge = await stripe().charges.retrieve(chargeId);
+    const customerId = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
+    if (customerId) {
+      const byCustomer = await userIdForCustomer(customerId);
+      if (byCustomer) return byCustomer;
+    }
+    const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+    if (pi) {
+      const refill = await db().select({ userId: schema.patchRefills.userId })
+        .from(schema.patchRefills)
+        .where(eq(schema.patchRefills.stripePaymentIntentId, pi)).limit(1);
+      if (refill[0]?.userId) return refill[0].userId;
+    }
+    const metaUser = charge.metadata?.user_id;
+    if (metaUser) {
+      const u = await db().select({ id: schema.users.id }).from(schema.users)
+        .where(eq(schema.users.id, metaUser)).limit(1);
+      if (u[0]) return u[0].id;
+    }
+  } catch (e) {
+    console.error(`[webhook] could not resolve charge ${chargeId} to a user`, e);
+  }
+  return null;
 }
 
 /**
@@ -448,7 +536,13 @@ async function upsertInvoice(inv: Stripe.Invoice): Promise<void> {
   const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id;
   const userId = (customerId ? await userIdForCustomer(customerId) : null)
     ?? await userIdForSubscription(subscriptionIdOf(inv));
-  const chargeId = (inv as unknown as { charge?: string | { id: string } }).charge;
+  /* Older API versions put the charge on the invoice; current ones list it
+   * under payments. Take whichever is present. */
+  const legacyCharge = (inv as unknown as { charge?: string | { id: string } }).charge;
+  const payments = (inv as unknown as {
+    payments?: { data?: Array<{ payment?: { charge?: string | { id: string } | null } }> };
+  }).payments;
+  const chargeId = legacyCharge ?? payments?.data?.[0]?.payment?.charge ?? null;
 
   const row = {
     stripeInvoiceId: inv.id!,

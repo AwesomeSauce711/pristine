@@ -173,16 +173,13 @@ export function proxy(request: NextRequest) {
 export const config = {
   /*
    * Skip static assets and the demo media: they need no CSP of their own, and
-   * running this on every image byte is wasted work. Prefetches are skipped for
-   * the same reason.
+   * running this on every image byte is wasted work.
    */
   matcher: [
-    {
-      source: '/((?!_next/static|_next/image|favicon.ico|demo/).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
-    },
+    /* No header-based exemptions: a request that claims to be a prefetch
+     * used to skip the proxy -- and with it the CSRF check, the CSP, and
+     * Next's body-size cap on the way in. The cost of running this on a
+     * prefetch is a few microseconds. */
+    { source: '/((?!_next/static|_next/image|favicon.ico|demo/).*)' },
   ],
 };
