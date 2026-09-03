@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sceneIsLite } from '@/lib/scene-tier';
 import EngagementRail from '@/components/EngagementRail';
 import { play } from '@/lib/sound';
 import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
@@ -150,7 +149,9 @@ export default function PreviewCompare({
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cleanRef = useRef<HTMLCanvasElement>(null);
+  /* The renderer's draw, for a redraw between video frames (the handle moved
+   * while the clip is paused). Set by the render effect below. */
+  const drawRef = useRef<(() => void) | null>(null);
   const [pos, setPos] = useState(50);
   const [dragging, setDragging] = useState(false);
   /*
@@ -163,139 +164,9 @@ export default function PreviewCompare({
   const [fallback, setFallback] = useState(false);
   const effectiveSrc = fallback ? PLACEHOLDER_SRC : src;
 
-  useEffect(() => {
-    const v = videoRef.current;
-    const crush = canvasRef.current;
-    const clean = cleanRef.current;
-    const wrap = wrapRef.current;
-    if (!v || !crush || !clean || !wrap) return;
-    const cctx = crush.getContext('2d');
-    const kctx = clean.getContext('2d');
-    if (!cctx || !kctx) return;
-    const isFallback = effectiveSrc === PLACEHOLDER_SRC;
+  /* The renderer lives below commitPos: it reads posRef, and a ref an effect
+   * reads must not be written above it (react-hooks/immutability). */
 
-    /*
-     * BOTH HALVES ARE DRAWN FROM THE SAME PRESENTED FRAME.
-     *
-     * The clean side used to be the <video> element itself with the crushed
-     * side drawn from it. Drawing from a playing element always lands one
-     * composite behind the element -- the callback fires for the frame that
-     * has just been presented -- so the crushed half trailed the clean half by
-     * a frame, every frame, and at 60fps that is plainly visible on a cut.
-     *
-     * So the clean half is a canvas too. One callback, one frame, two draws:
-     * the clean canvas at display size, the crushed canvas at the reduced size
-     * that is the whole argument. They cannot disagree about which frame it is.
-     * The <video> stays underneath at full size: mobile browsers pause a video
-     * they judge invisible, and the canvases are transparent until the first
-     * frame lands, so its own picture shows through until then rather than a
-     * black rectangle.
-     *
-     * COST, AND WHY IT IS AFFORDABLE NOW
-     * A full-size draw per frame was what starved the decoder on a phone once
-     * before -- at three times the pixel ratio. The clean canvas is capped at
-     * 1x on a lite device and 2x elsewhere, drawn once per presented video
-     * frame rather than per animation frame, and none of the other loops that
-     * shared the phone then are running any more.
-     */
-    let raf = 0;
-    let vfc = 0;
-    let framesDrawn = 0;
-    const rvfc = v as HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
-      cancelVideoFrameCallback?: (handle: number) => void;
-    };
-    const hasVfc = typeof rvfc.requestVideoFrameCallback === 'function';
-
-    const size = () => {
-      if (!v.videoWidth) return;
-      const shortEdge = Math.min(v.videoWidth, v.videoHeight);
-      const aspect = v.videoHeight / v.videoWidth;
-      const reduction = crushReduction(shortEdge, targetShortEdge);
-      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 1 : 2);
-      const physicalW = (wrap.clientWidth || 300) * dpr;
-      clean.width = Math.max(16, Math.round(physicalW));
-      clean.height = Math.max(16, Math.round(physicalW * aspect));
-      crush.width = Math.max(16, Math.round(physicalW * reduction));
-      crush.height = Math.max(16, Math.round(physicalW * reduction * aspect));
-      paint();
-    };
-
-    const paint = () => {
-      if (v.readyState < 2 || clean.width === 0) return;
-      kctx.drawImage(v, 0, 0, clean.width, clean.height);
-      /* Only the resolution. There used to be a colour filter here too -- less
-       * saturation, less contrast, a little darker -- and it was the reason the
-       * crushed side read as exaggerated: TikTok's transcode keeps the colour
-       * and loses the detail. The detail loss is the downscale-and-back this
-       * canvas performs, and nothing else. */
-      cctx.drawImage(v, 0, 0, crush.width, crush.height);
-      framesDrawn++;
-    };
-    const onFrame = () => {
-      paint();
-      vfc = rvfc.requestVideoFrameCallback!(onFrame);
-    };
-    const tick = () => {
-      paint();
-      raf = requestAnimationFrame(tick);
-    };
-
-    /*
-     * `play()` is rejected more often than the autoplay rules suggest -- iOS Low
-     * Power Mode, Data Saver, a backgrounded tab. A refusal is never final: the
-     * next `canplay` and the first touch anywhere both try again.
-     */
-    let starting = false;
-    const start = () => {
-      if (starting || !v.paused || v.readyState < 3) return;
-      starting = true;
-      void v.play().catch(() => {}).finally(() => { starting = false; });
-    };
-    const onGesture = () => { if (v.paused) start(); };
-    /* A decode that fails outright gets one reload, after a beat. */
-    let reloaded = false;
-    const onError = () => {
-      if (reloaded) return;
-      reloaded = true;
-      window.setTimeout(() => { v.load(); start(); }, 800);
-    };
-    /* The stand-in, if nothing has been drawn by the deadline. Never for the
-     * stand-in itself: there is nowhere further to fall. */
-    const watchdog = window.setTimeout(() => {
-      if (framesDrawn === 0 && !isFallback) setFallback(true);
-    }, FIRST_FRAME_MS);
-
-    v.addEventListener('error', onError);
-    v.addEventListener('loadedmetadata', size);
-    v.addEventListener('loadeddata', paint);
-    v.addEventListener('canplay', start);
-    document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
-    document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
-    if (v.videoWidth) size();
-    const ro = new ResizeObserver(size);
-    ro.observe(wrap);
-
-    start();
-    if (hasVfc) {
-      paint();
-      vfc = rvfc.requestVideoFrameCallback!(onFrame);
-    } else {
-      raf = requestAnimationFrame(tick);
-    }
-    return () => {
-      window.clearTimeout(watchdog);
-      if (raf) cancelAnimationFrame(raf);
-      if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
-      ro.disconnect();
-      v.removeEventListener('error', onError);
-      v.removeEventListener('loadedmetadata', size);
-      v.removeEventListener('loadeddata', paint);
-      v.removeEventListener('canplay', start);
-      document.removeEventListener('pointerdown', onGesture, { capture: true });
-      document.removeEventListener('touchstart', onGesture, { capture: true });
-    };
-  }, [effectiveSrc, targetShortEdge]);
 
   /*
    * Every change to the split goes through here, and the parent hears about
@@ -316,7 +187,9 @@ export default function PreviewCompare({
    */
   const revealArmed = useRef(pos >= REVEAL_AT);
   const commitPos = useCallback((next: number) => {
+    /* The split is a scissor in the renderer; a paused clip still follows the handle. */
     posRef.current = next;
+    drawRef.current?.();
     setPos(next);
     reportRef.current?.(next);
     if (next >= REARM_ABOVE) revealArmed.current = true;
@@ -407,6 +280,248 @@ export default function PreviewCompare({
     };
   }, [motionDrive, dragging, commitPos]);
 
+  /*
+   * THE RENDERER. One WebGL canvas, one frame upload, two draws.
+   *
+   * WHY NOT 2D CANVASES
+   * Two 2D canvases drawn from the same frame fixed the sync and broke two
+   * other things: a canvas is a fixed grid of pixels, so the clean half was
+   * capped at the size it was drawn at and looked soft or blocky where the
+   * page showed it larger -- the <video> element never had that problem,
+   * because the compositor samples it at the screen's own resolution -- and
+   * copying a full 4K frame into a large 2D canvas twice per frame is slow
+   * enough on an ordinary GPU to drop to half rate. So the clean side was
+   * sharp and smooth only as a video element, and in sync only as a canvas.
+   *
+   * WebGL gives both. The frame is uploaded to a texture ONCE, which on a
+   * hardware-decoded video is a copy that never leaves the GPU. The clean
+   * half is that texture drawn at the screen's full device resolution -- as
+   * many pixels as the box has, whatever the page did to it. The crushed
+   * half is the same texture rendered into a small target at the reduction
+   * that is the whole argument, then drawn back up, scissored to the left of
+   * the handle. Two full-screen quads per frame is nothing; 60fps at 4K is
+   * the default, not an achievement. And both halves are the same frame, by
+   * construction, as before.
+   *
+   * Mipmaps (WebGL2) do the downscaling properly: linear sampling alone at
+   * 7:1 shimmers. Where only WebGL1 exists the sampling is linear and the
+   * picture a little harsher; where WebGL is missing altogether the canvas
+   * stays transparent and the video element underneath shows on its own --
+   * no crushed half, but never a black screen.
+   */
+  useEffect(() => {
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!v || !c || !wrap) return;
+    const isFallback = effectiveSrc === PLACEHOLDER_SRC;
+
+    const gl2 = c.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
+    const gl = (gl2 ?? c.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })) as WebGLRenderingContext | null;
+    const mips = !!gl2;
+
+    let raf = 0;
+    let vfc = 0;
+    let framesDrawn = 0;
+    const rvfc = v as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const hasVfc = typeof rvfc.requestVideoFrameCallback === 'function';
+
+    /* ---- the programme: a quad, a texture, cover-crop UVs ---- */
+    let prog: WebGLProgram | null = null;
+    let tex: WebGLTexture | null = null;
+    let crushTex: WebGLTexture | null = null;
+    let fbo: WebGLFramebuffer | null = null;
+    let quad: WebGLBuffer | null = null;
+    let uScale: WebGLUniformLocation | null = null;
+    let uOffset: WebGLUniformLocation | null = null;
+    let W = 0, H = 0, cw = 0, ch = 0;
+    let uvScale: [number, number] = [1, 1];
+    let uvOffset: [number, number] = [0, 0];
+
+    if (gl) {
+      const vs = `attribute vec2 a; varying vec2 uv; uniform vec2 s; uniform vec2 o;
+        void main(){ uv = (a * 0.5 + 0.5) * s + o; gl_Position = vec4(a, 0.0, 1.0); }`;
+      const fs = `precision mediump float; varying vec2 uv; uniform sampler2D t;
+        void main(){ gl_FragColor = texture2D(t, uv); }`;
+      const sh = (type: number, src: string) => {
+        const h = gl.createShader(type)!;
+        gl.shaderSource(h, src); gl.compileShader(h);
+        return h;
+      };
+      prog = gl.createProgram()!;
+      gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+      quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const aLoc = gl.getAttribLocation(prog, 'a');
+      gl.enableVertexAttribArray(aLoc);
+      gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+      uScale = gl.getUniformLocation(prog, 's');
+      uOffset = gl.getUniformLocation(prog, 'o');
+      gl.uniform1i(gl.getUniformLocation(prog, 't'), 0);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+
+      const mkTex = (min: number) => {
+        const t = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        return t;
+      };
+      tex = mkTex(mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      crushTex = mkTex(gl.LINEAR);
+      fbo = gl.createFramebuffer();
+    }
+
+    /* ---- sizes: the screen's own device pixels, transforms included ---- */
+    const size = () => {
+      if (!v.videoWidth) return;
+      const r = wrap.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      let w = Math.max(16, Math.round((r.width || wrap.clientWidth || 300) * dpr));
+      let h = Math.max(16, Math.round((r.height || wrap.clientHeight || 650) * dpr));
+      /* Bounded, so a 4K monitor at 3x does not ask for a 12-megapixel canvas. */
+      const cap = 4_200_000;
+      if (w * h > cap) { const k = Math.sqrt(cap / (w * h)); w = Math.round(w * k); h = Math.round(h * k); }
+      W = w; H = h;
+      c.width = W; c.height = H;
+      const reduction = crushReduction(Math.min(v.videoWidth, v.videoHeight), targetShortEdge);
+      cw = Math.max(8, Math.round(W * reduction));
+      ch = Math.max(8, Math.round(H * reduction));
+      /* Cover-crop the video into the box, the way object-fit: cover does. */
+      const boxA = W / H;
+      const vidA = v.videoWidth / v.videoHeight;
+      if (vidA > boxA) { const sx = boxA / vidA; uvScale = [sx, 1]; uvOffset = [(1 - sx) / 2, 0]; }
+      else { const sy = vidA / boxA; uvScale = [1, sy]; uvOffset = [0, (1 - sy) / 2]; }
+      if (gl && crushTex) {
+        gl.bindTexture(gl.TEXTURE_2D, crushTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cw, ch, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      }
+      draw();
+    };
+
+    /* ---- one frame: upload once, draw clean, draw crushed under the handle ---- */
+    let uploaded = -1;
+    const draw = () => {
+      if (!gl || !prog || !tex || !crushTex || v.readyState < 2 || W === 0) return;
+      gl.useProgram(prog);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      /* Upload only when the frame changed; a drag between frames reuses it. */
+      if (v.currentTime !== uploaded || framesDrawn === 0) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+        if (mips) gl.generateMipmap(gl.TEXTURE_2D);
+        uploaded = v.currentTime;
+        /* The crushed picture: the frame rendered small. Downscale-and-back
+         * is the whole of the effect -- only the resolution, never the colour. */
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, crushTex, 0);
+        gl.viewport(0, 0, cw, ch);
+        gl.disable(gl.SCISSOR_TEST);
+        gl.uniform2f(uScale, uvScale[0], uvScale[1]);
+        gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+      }
+      /* Clean, the whole screen. */
+      gl.viewport(0, 0, W, H);
+      gl.disable(gl.SCISSOR_TEST);
+      gl.uniform2f(uScale, uvScale[0], uvScale[1]);
+      gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      /* Crushed, left of the handle. */
+      const split = Math.round((W * Math.max(0, Math.min(100, posRef.current))) / 100);
+      if (split > 0) {
+        gl.bindTexture(gl.TEXTURE_2D, crushTex);
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(0, 0, split, H);
+        gl.uniform2f(uScale, 1, 1);
+        gl.uniform2f(uOffset, 0, 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.disable(gl.SCISSOR_TEST);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+      }
+      framesDrawn++;
+      c.dataset.frames = String(framesDrawn);
+    };
+    drawRef.current = draw;
+
+    const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
+    const tick = () => { draw(); raf = requestAnimationFrame(tick); };
+
+    /*
+     * `play()` is rejected more often than the autoplay rules suggest -- iOS Low
+     * Power Mode, Data Saver, a backgrounded tab. A refusal is never final: the
+     * next `canplay` and the first touch anywhere both try again.
+     */
+    let starting = false;
+    const start = () => {
+      if (starting || !v.paused || v.readyState < 3) return;
+      starting = true;
+      void v.play().catch(() => {}).finally(() => { starting = false; });
+    };
+    const onGesture = () => { if (v.paused) start(); };
+    /* A decode that fails outright gets one reload, after a beat. */
+    let reloaded = false;
+    const onError = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.setTimeout(() => { v.load(); start(); }, 800);
+    };
+    /* The stand-in, if nothing has been drawn by the deadline. Never for the
+     * stand-in itself: there is nowhere further to fall. */
+    const watchdog = window.setTimeout(() => {
+      if (framesDrawn === 0 && !isFallback) setFallback(true);
+    }, FIRST_FRAME_MS);
+
+    v.addEventListener('error', onError);
+    v.addEventListener('loadedmetadata', size);
+    v.addEventListener('loadeddata', draw);
+    v.addEventListener('canplay', start);
+    document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
+    document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
+    if (v.videoWidth) size();
+    const ro = new ResizeObserver(size);
+    ro.observe(wrap);
+
+    start();
+    if (hasVfc) {
+      draw();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+    } else {
+      raf = requestAnimationFrame(tick);
+    }
+    return () => {
+      drawRef.current = null;
+      window.clearTimeout(watchdog);
+      if (raf) cancelAnimationFrame(raf);
+      if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
+      ro.disconnect();
+      v.removeEventListener('error', onError);
+      v.removeEventListener('loadedmetadata', size);
+      v.removeEventListener('loadeddata', draw);
+      v.removeEventListener('canplay', start);
+      document.removeEventListener('pointerdown', onGesture, { capture: true });
+      document.removeEventListener('touchstart', onGesture, { capture: true });
+      if (gl) {
+        if (tex) gl.deleteTexture(tex);
+        if (crushTex) gl.deleteTexture(crushTex);
+        if (fbo) gl.deleteFramebuffer(fbo);
+        if (quad) gl.deleteBuffer(quad);
+        if (prog) gl.deleteProgram(prog);
+      }
+    };
+  }, [effectiveSrc, targetShortEdge]);
+
   const crushedSpec = `${Math.round(targetShortEdge)}×${Math.round(targetShortEdge * (height / width))} · ${targetFps}fps · 2.9 Mbps`;
   const pristineSpec = `${width}×${height} · ${fps.toFixed(0)}fps · ${bitrateMbps.toFixed(1)} Mbps`;
 
@@ -430,21 +545,13 @@ export default function PreviewCompare({
         className="absolute inset-0 h-full w-full object-cover"
       />
 
-      {/* Clean side: the same frame the crushed side is drawn from. */}
+      {/* Both halves, drawn by the renderer from one uploaded frame. Transparent
+          until the first draw, so the video underneath shows meanwhile. */}
       <canvas
-        ref={cleanRef}
+        ref={canvasRef}
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 h-full w-full"
       />
-
-      {/* Crushed side, clipped to the left of the handle. */}
-      <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-        <canvas
-          ref={canvasRef}
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      </div>
 
       {fallback && (
         <div

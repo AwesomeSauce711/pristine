@@ -19,23 +19,25 @@ import { useMe } from '@/lib/use-me';
  *
  * Display only. Every page it links to enforces its own access server-side.
  */
-export default function NavCta({ tryFree = true }: { tryFree?: boolean }) {
+/*
+ * Two buttons, two jobs.
+ *
+ *   account  the top-right corner: who you are. "Sign in" when signed out
+ *            (sign-up is the same door -- an emailed code creates the account),
+ *            "Account" when signed in. Never an invitation to upload.
+ *   upload   the hero and the scroll dock: what you came to do. "Try free"
+ *            for a stranger, "Upload" for a subscriber. Both go to the tool.
+ */
+export default function NavCta({ mode = 'upload' }: { mode?: 'account' | 'upload' }) {
   const { signedIn, entitled } = useMe();
 
   const classes =
     'ml-1 pill pill-primary pill-sm';
 
-  /* A subscriber's one action is to upload; the account is a link away. */
-  if (entitled) {
-    return <Link href="/app" className={classes}>Upload</Link>;
+  if (mode === 'account') {
+    return signedIn
+      ? <Link href="/account" className={classes}>Account</Link>
+      : <Link href="/sign-in" className={classes}>Sign in</Link>;
   }
-  if (signedIn) {
-    return <Link href="/account" className={classes}>Account</Link>;
-  }
-  return (
-    <>
-      <Link href="/sign-in" className="nav-link hidden sm:inline-flex">Sign in</Link>
-      {tryFree && <Link href="/app" className={classes}>Try free</Link>}
-    </>
-  );
+  return <Link href="/app" className={classes}>{entitled ? 'Upload' : 'Try free'}</Link>;
 }

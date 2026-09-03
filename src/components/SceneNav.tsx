@@ -86,9 +86,9 @@ interface Props {
    */
   variant?: 'landing' | 'app';
   /**
-   * `none` drops "Try free" from the nav and the dock. On the tool page the
-   * reader is already trying, and a button inviting them to was sitting under
-   * the page's own Download control.
+   * `none` drops the upload button from the dock. On the tool page the reader
+   * is already uploading, and a button inviting them to was sitting under the
+   * page's own Download control. The corner always keeps Sign in / Account.
    */
   cta?: 'default' | 'none';
   /**
@@ -339,7 +339,7 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
               </Link>
             </span>
             <span data-depth={DEPTH.cta} className="pointer-events-auto inline-flex" {...soundProps('hover')}>
-              <NavCta tryFree={cta !== 'none'} />
+              <NavCta mode="account" />
             </span>
           </nav>
         </div>
@@ -365,8 +365,9 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
         }}
       >
         {cta !== 'none' && (
+          /* The dock is the upload button; the corner above is the account. */
           <span className="inline-flex" {...soundProps('hover')}>
-            <NavCta />
+            <NavCta mode="upload" />
           </span>
         )}
         <SoundToggle />
