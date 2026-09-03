@@ -153,8 +153,30 @@ export async function recomputeEntitlement(userId: string): Promise<void> {
    */
   const current = await db().select().from(schema.entitlements)
     .where(eq(schema.entitlements.userId, userId)).limit(1);
-  const revokedAt = current[0]?.revokedAt ?? null;
-  const revokedReason = current[0]?.revokedReason ?? null;
+  let revokedAt = current[0]?.revokedAt ?? null;
+  let revokedReason = current[0]?.revokedReason ?? null;
+
+  /*
+   * A REFUND'S REVOCATION BELONGS TO THE SUBSCRIPTION THAT WAS REFUNDED.
+   *
+   * When the customer later buys again -- a subscription that began after the
+   * refund and is live -- the old refund has nothing to say about the new
+   * purchase, and carrying it forward did two things at once: the fresh trial
+   * showed as "No active plan" with every download refused, and, because the
+   * checkout guard reads this same row and saw it revoked, a second trial
+   * could be started on top of the first. A refund of the CURRENT
+   * subscription's charge still sticks: that subscription began before the
+   * refund. A dispute or a fraud warning is different in kind and is never
+   * cleared here, whatever is bought in the meantime -- only restoreEntitlement
+   * lifts those.
+   */
+  const live = !!governing && ['trialing', 'active', 'past_due'].includes(governing.status);
+  const startedAfterRefund = !!source?.currentPeriodStart && !!revokedAt
+    && source.currentPeriodStart.getTime() > revokedAt.getTime();
+  if (revokedAt && revokedReason === 'refund' && live && startedAfterRefund) {
+    revokedAt = null;
+    revokedReason = null;
+  }
 
   const value = {
     userId,

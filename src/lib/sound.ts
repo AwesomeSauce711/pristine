@@ -66,7 +66,12 @@ export interface PlayOptions {
 /* ---- Tuning ------------------------------------------------------------ */
 
 /** The one volume control. Everything below is designed to peak near 1 before it. */
-const MASTER_GAIN = 0.22;
+/*
+ * Lowered from 0.22. The site is not a game; the sounds are confirmations.
+ * The three that matter -- a file landing, the preview arriving, the download
+ * saved -- keep their voicing; the rest are quieter or gone.
+ */
+const MASTER_GAIN = 0.15;
 /** Repeats of the same sound closer together than this are dropped. */
 const MIN_GAP_MS = 45;
 /** Sounds allowed to overlap; a seventh is dropped, never queued. */
@@ -461,19 +466,21 @@ const DESIGNS: Record<SoundName, (v: Voice) => number> = {
   /* A fingertip touching glass: one soft sine tap, a little under 1.5 kHz,
    * falling as it goes, about fifteen milliseconds. No noise grain — the
    * grain read as static. */
-  hover: (v) =>
-    tone(v, { type: 'sine', freq: 1480, to: 1040, glide: 0.014, level: 0.22, attack: 0.001, decay: 0.006 }),
+  /* Silent. A chirp on every button hover was the "unnecessary" one: it
+   * fired dozens of times a minute for nothing that had happened. The name
+   * stays so no caller changes; it simply plays nothing. */
+  hover: () => 0,
 
   /* A rounder, slightly higher tap for a counter landing on its figure or a
    * step of the slider. */
   tick: (v) =>
-    tone(v, { type: 'sine', freq: 2200, to: 1700, glide: 0.01, level: 0.2, attack: 0.0008, decay: 0.004 }),
+    tone(v, { type: 'sine', freq: 2200, to: 1700, glide: 0.01, level: 0.09, attack: 0.0008, decay: 0.004 }),
 
   /* A bubble: a sine rising 380 → 640 Hz as it bursts, gone in ninety milliseconds. */
   pop: (v) =>
     Math.max(
-      tone(v, { type: 'sine', freq: 380, to: 640, glide: 0.09, level: 0.7, attack: 0.003, decay: 0.028 }),
-      hiss(v, { filter: 'highpass', freq: 1800, level: 0.12, attack: 0.0005, decay: 0.0015 }),
+      tone(v, { type: 'sine', freq: 380, to: 640, glide: 0.09, level: 0.38, attack: 0.003, decay: 0.028 }),
+      hiss(v, { filter: 'highpass', freq: 1800, level: 0.06, attack: 0.0005, decay: 0.0015 }),
     ),
 
   /*
@@ -541,17 +548,17 @@ const DESIGNS: Record<SoundName, (v: Voice) => number> = {
    * darkening as it settles, and the faintest click of contact. */
   drop: (v) =>
     Math.max(
-      tone(v, { type: 'sine', freq: 150, to: 96, glide: 0.08, level: 0.9, attack: 0.002, decay: 0.09 }),
-      hiss(v, { filter: 'lowpass', freq: 900, to: 260, glide: 0.18, q: 0.7, level: 0.3, attack: 0.006, decay: 0.07 }),
-      hiss(v, { filter: 'bandpass', freq: 2400, level: 0.1, attack: 0.0005, decay: 0.003 }),
+      tone(v, { type: 'sine', freq: 150, to: 96, glide: 0.08, level: 0.55, attack: 0.002, decay: 0.09 }),
+      hiss(v, { filter: 'lowpass', freq: 900, to: 260, glide: 0.18, q: 0.7, level: 0.2, attack: 0.006, decay: 0.07 }),
+      hiss(v, { filter: 'bandpass', freq: 2400, level: 0.06, attack: 0.0005, decay: 0.003 }),
     ),
 
   /* Air moving past: a band of noise sweeping up and to the left, then down
    * and to the right, two hundred milliseconds. */
   whoosh: (v) =>
     Math.max(
-      hiss(v, { filter: 'bandpass', freq: 500, to: 2600, glide: 0.11, q: 1.6, level: 0.5, attack: 0.06, decay: 0.04, pan: -0.35 }),
-      hiss(v, { filter: 'bandpass', freq: 2200, to: 600, glide: 0.1, q: 1.6, level: 0.4, at: 0.09, attack: 0.03, decay: 0.04, pan: 0.35 }),
+      hiss(v, { filter: 'bandpass', freq: 500, to: 2600, glide: 0.11, q: 1.6, level: 0.26, attack: 0.06, decay: 0.04, pan: -0.35 }),
+      hiss(v, { filter: 'bandpass', freq: 2200, to: 600, glide: 0.1, q: 1.6, level: 0.2, at: 0.09, attack: 0.03, decay: 0.04, pan: 0.35 }),
     ),
 };
 

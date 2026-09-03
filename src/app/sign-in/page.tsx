@@ -22,7 +22,10 @@ import Plate3D from '@/components/Plate3D';
 function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get('next') ?? '/app';
+  /* Only a path on this site. A full URL here would be an open redirect: a
+   * crafted link that signs someone in and then sends them anywhere. */
+  const rawNext = params.get('next') ?? '/app';
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/app';
   /* Sent here by the Download button: the file is stashed and waiting. */
   const forDownload = next.includes('intent=download');
 

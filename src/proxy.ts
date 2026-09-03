@@ -54,9 +54,44 @@ import type { NextRequest } from 'next/server';
  */
 const CSRF_EXEMPT = ['/api/stripe/webhook'];
 
+/*
+ * The one public host. The session cookie is a __Host- cookie: it belongs to
+ * exactly the host that set it, so a reader who signed in on the apex domain
+ * and then opened a link to www (or the other way round) is signed out there,
+ * and is told to sign in again on a page that has just shown them their
+ * plans. Derived from NEXT_PUBLIC_ORIGIN, and only the www/apex pair is ever
+ * redirected -- Railway's own hostname and localhost are left alone.
+ */
+function canonicalHost(requestHost: string | null): string | null {
+  const configured = process.env.NEXT_PUBLIC_ORIGIN?.trim();
+  if (configured) {
+    try {
+      const host = new URL(configured).host;
+      if (host && !host.startsWith('localhost') && !host.startsWith('127.')) return host;
+    } catch {
+      /* fall through to the rule below */
+    }
+  }
+  /* Nothing configured: the apex is canonical, so www is the twin. */
+  return requestHost?.startsWith('www.') ? requestHost.slice(4) : null;
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
+
+  /* ---- one host -------------------------------------------------------- */
+
+  const requestHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+    || request.headers.get('host')?.trim() || null;
+  const canonical = canonicalHost(requestHost);
+  if (canonical && requestHost) {
+    const host = requestHost;
+    if (host !== canonical && (host === `www.${canonical}` || `www.${host}` === canonical)) {
+      const to = `https://${canonical}${pathname}${request.nextUrl.search}`;
+      return NextResponse.redirect(to, 308);
+    }
+  }
 
   /* ---- CSRF ------------------------------------------------------------ */
 

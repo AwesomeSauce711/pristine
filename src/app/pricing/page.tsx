@@ -36,6 +36,10 @@ const QUESTIONS = [
     q: 'What if it stops working?',
     a: 'This depends on how TikTok processes uploads, which is outside our control and could change. If it stops working we tell you straight away and get it back up as soon as possible; your subscription and access continue and resume automatically, any time lost beyond 14 days is added to your plan, and you can cancel whenever you like. That is also why there is no lifetime plan.',
   },
+  {
+    q: 'What if I need more than my daily allowance?',
+    a: 'Every plan has a daily number of downloads, and it resets 24 hours after your first download of the day. If you reach it, you can top the day up for $0.99 — a one-off payment, as many times as you like, nothing recurring.',
+  },
 ];
 
 export default async function PricingPage() {

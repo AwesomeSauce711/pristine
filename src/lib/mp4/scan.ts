@@ -271,13 +271,15 @@ export function assemble(
   payloadStart: number,
   payloadLen: number,
   fillerLen: number,
+  fillerHead: Uint8Array = new Uint8Array(0),
 ): File {
   const parts: BlobPart[] = [
     ftyp as BlobPart,
     patchedMoov as BlobPart,
     mdatHeader as BlobPart,
     original.slice(payloadStart, payloadStart + payloadLen),
-    new Uint8Array(fillerLen) as BlobPart,
+    fillerHead as BlobPart,
+    new Uint8Array(Math.max(0, fillerLen - fillerHead.length)) as BlobPart,
   ];
   const base = original.name.replace(/\.[^.]+$/, '');
   return new File(parts, `${base}-pristine.mp4`, {

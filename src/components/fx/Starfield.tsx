@@ -65,7 +65,9 @@ const SCROLL_PARALLAX = 0.35;
 /* How far the camera leans toward the pointer, in units. */
 const POINTER_SHIFT = 0.025;
 const MAX_DPR = 2;
-const MAX_PIXELS = 6_000_000;
+/* A 4K screen at its native ratio. The sky is one blit and a thousand small
+ * sprites a frame; what it must not be is upscaled on a large display. */
+const MAX_PIXELS = 17_000_000;
 const SPARKLES = 12;
 /* Per-star record: x, y, z, size, twinkle phase, twinkle rate. */
 const STRIDE = 6;

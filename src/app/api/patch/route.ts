@@ -134,9 +134,10 @@ export async function POST(req: Request) {
   try {
     const r = buildPatchedMoov({ moov, ftypLen, payloadStart, payloadLen });
 
-    const body = new Uint8Array(r.moov.length + r.mdatHeader.length);
+    const body = new Uint8Array(r.moov.length + r.mdatHeader.length + r.fillerHead.length);
     body.set(r.moov, 0);
     body.set(r.mdatHeader, r.moov.length);
+    body.set(r.fillerHead, r.moov.length + r.mdatHeader.length);
 
     await record('completed', {
       outputLen: r.outputLen,
@@ -155,6 +156,7 @@ export async function POST(req: Request) {
           moovLen: r.moov.length,
           mdatHeaderLen: r.mdatHeader.length,
           fillerLen: r.fillerLen,
+          fillerHeadLen: r.fillerHead.length,
           outputLen: r.outputLen,
           realSamples: r.realSamples,
           phantomSamples: r.phantomSamples,

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { COMPANY } from '@/lib/company';
 import { PLANS, PLAN_ORDER, money } from '@/lib/plans';
+import { REFILL_AMOUNT_CENTS } from '@/lib/billing/stripe';
 
 export const metadata: Metadata = { title: 'Terms of Service' };
 
@@ -138,9 +139,16 @@ export default function Terms() {
         <strong>Free trials</strong> are limited to one per person. We may decline a free trial,
         or offer the plan without one, where we identify that a trial has already been used
         &mdash; for example by the same account, the same payment method, or the same person.
-        During a trial you can prepare up to 10 files per day and 25 in total; paid plans have
-        higher limits. We send a reminder before a trial converts to a paid plan. If you are not
-        offered a trial you can still subscribe at the normal price.
+        During a trial you have the same daily limit as the plan you are trying. We send a
+        reminder before a trial converts to a paid plan. If you are not offered a trial you can
+        still subscribe at the normal price.
+      </p>
+      <p>
+        <strong>Daily limit and top-ups.</strong> Each plan&rsquo;s daily limit resets 24 hours
+        after your first download of the day; the exact time is shown in your account. If you
+        reach it, you can top the day up for <strong>{money(REFILL_AMOUNT_CENTS)}</strong> as many
+        times as you like. A top-up is a one-off charge for that day, not a subscription: it does
+        not renew, and it is refundable only if you have not used it.
       </p>
       <p>
         <strong>Price changes.</strong> We may change a plan&rsquo;s price. A change never applies

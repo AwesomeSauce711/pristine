@@ -202,7 +202,9 @@ const PARALLAX_EASE = 0.08;
 const WRAP_MARGIN = 1.08;
 
 const MAX_DPR = 2;
-const MAX_PIXELS = 8_000_000;
+/* Enough for a 4K screen at its native ratio, so the field is never scaled
+ * up on a large desktop display, where a soft sprite reads as a soft site. */
+const MAX_PIXELS = 17_000_000;
 /* On a phone: fewer pixels, so a tap's burst does not stutter. */
 const MAX_DPR_NARROW = 1.25;
 const MAX_PIXELS_NARROW = 2_000_000;
@@ -867,11 +869,26 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
     /* The world plane, at a depth, whose shape reads as `px` on screen. */
     const planeFor = (px: number, zz: number, share: number) => px / (share * persp(zz));
     const randomDepth = () => Z_FAR + (Z_NEAR - Z_FAR) * Math.pow(rnd(), DEPTH_BIAS);
-    /* A point in the hero, CSS px from its top-left, to world at a depth. */
-    const toWorld = (sx: number, sy: number, zz: number) => ({
-      x: cam.x + ((sx / W) * 2 - 1) * halfW(zz),
-      y: cam.y - ((sy / H) * 2 - 1) * halfH(zz),
-    });
+    /*
+     * A point in the hero, CSS px from its top-left, to world at a depth:
+     * the camera's own ray through that pixel, met with the plane z = zz.
+     *
+     * Exact, whatever the camera is doing. The parallax displaces it and
+     * turns it to keep looking at the origin, and a mouse that has rested at
+     * a corner before the click has that displacement fully applied. An
+     * earlier formula added the displacement straight back, which put the
+     * burst up to 130px further out than the pointer -- into the corner,
+     * on a desktop -- and a first-order correction still missed by ~40px at
+     * the corners, where the turned camera's perspective is not linear.
+     */
+    const ray = new THREE.Vector3();
+    const toWorld = (sx: number, sy: number, zz: number) => {
+      ray.set((sx / W) * 2 - 1, 1 - (sy / H) * 2, 0.5).unproject(camera);
+      const o = camera.position;
+      ray.sub(o);
+      const t = (zz - o.z) / ray.z;
+      return { x: o.x + ray.x * t, y: o.y + ray.y * t };
+    };
 
     /* ---- record writers ---- */
     const setTint = (i: number, c: readonly [number, number, number]) => {

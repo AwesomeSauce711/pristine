@@ -447,10 +447,12 @@ export default function AppPage() {
       const buf = new Uint8Array(await res.arrayBuffer());
       const moov = buf.subarray(0, meta.moovLen);
       const mdatHeader = buf.subarray(meta.moovLen, meta.moovLen + meta.mdatHeaderLen);
+      const headLen = Number(meta.fillerHeadLen ?? 0);
+      const fillerHead = buf.subarray(meta.moovLen + meta.mdatHeaderLen, meta.moovLen + meta.mdatHeaderLen + headLen);
 
       const out = assemble(
         file, scan.ftyp, moov, mdatHeader,
-        scan.descriptor.payloadStart, scan.descriptor.payloadLen, meta.fillerLen,
+        scan.descriptor.payloadStart, scan.descriptor.payloadLen, meta.fillerLen, fillerHead,
       );
 
       /* The hold: the file is ready, the reader is not yet expecting it. */
@@ -748,15 +750,7 @@ export default function AppPage() {
                 )}
 
                 {/* The one thing that must be caught before any payment. */}
-                {!scan.hasAudio && (
-                  <div className="mt-4 rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
-                    <p className="text-[14px] font-medium text-text">This video has no audio track</p>
-                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
-                      Add a silent audio track in your editor and export again — everything else
-                      about your file is fine.
-                    </p>
-                  </div>
-                )}
+
               </section>
 
               {/* ---- the hook ---- */}
@@ -821,7 +815,7 @@ export default function AppPage() {
                     </div>
                     <button
                       onClick={download}
-                      disabled={busy || !scan.hasAudio}
+                      disabled={busy}
                       className="pill pill-primary disabled:cursor-not-allowed disabled:opacity-40"
                       {...soundProps('hover')}
                     >
@@ -956,7 +950,7 @@ export default function AppPage() {
               <button
                 type="button"
                 onClick={download}
-                disabled={busy || !scan.hasAudio}
+                disabled={busy}
                 className="pill pill-primary pointer-events-auto shadow-[0_12px_40px_rgba(0,0,0,0.55)] disabled:opacity-40"
                 {...soundProps('hover')}
               >

@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { siteOrigin } from '@/lib/origin';
 import { currentUser } from '@/lib/auth';
@@ -127,11 +127,34 @@ export async function POST(req: Request) {
   /* ---- refuse to sell someone a second subscription -------------------- */
 
   if (user) {
-    const existing = await db().select().from(schema.entitlements)
-      .where(eq(schema.entitlements.userId, user.id)).limit(1);
-    if (existing[0] && existing[0].accessUntil > new Date() && !existing[0].revokedAt) {
+    /*
+     * Two checks, because they answer different questions. The entitlement
+     * row says whether there is access right now; the subscription rows say
+     * whether Stripe is already billing this person. The second is the one
+     * that matters here: a live subscription -- trialing, active, or in
+     * dunning -- means a second checkout would be a second subscription and
+     * a second charge, whatever the entitlement row happens to say about
+     * access (it once said "revoked" after an old refund while a new trial
+     * was live, and a second trial was started on top of the first).
+     */
+    const [existing, live] = await Promise.all([
+      db().select().from(schema.entitlements)
+        .where(eq(schema.entitlements.userId, user.id)).limit(1),
+      db().select({ id: schema.subscriptions.stripeSubscriptionId })
+        .from(schema.subscriptions)
+        .where(and(
+          eq(schema.subscriptions.userId, user.id),
+          inArray(schema.subscriptions.status, ['trialing', 'active', 'past_due']),
+        ))
+        .limit(1),
+    ]);
+    const hasAccess = !!existing[0] && existing[0].accessUntil > new Date() && !existing[0].revokedAt;
+    if (hasAccess || live[0]) {
       return Response.json(
-        { code: 'already_subscribed', message: 'You already have an active plan.' },
+        {
+          code: 'already_subscribed',
+          message: 'You already have a plan on this account. Manage it from your account page.',
+        },
         { status: 409 },
       );
     }

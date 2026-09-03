@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { COMPANY } from '@/lib/company';
 import { PLANS, money } from '@/lib/plans';
+import { REFILL_AMOUNT_CENTS } from '@/lib/billing/stripe';
 
 export const metadata: Metadata = { title: 'Refund Policy' };
 
@@ -79,6 +80,13 @@ export default function Refunds() {
       <p>
         We send a reminder before your free trial converts, and before each weekly renewal, so a
         charge should never be a surprise. If one is, tell us.
+      </p>
+
+      <h2>Day top-ups</h2>
+      <p>
+        A {money(REFILL_AMOUNT_CENTS)} top-up adds to the current day&rsquo;s limit and is a
+        one-off charge, not a subscription. It is refundable in full if you have not downloaded
+        a file since buying it; once used, it is not refunded.
       </p>
 
       <h2>The weekly plan</h2>

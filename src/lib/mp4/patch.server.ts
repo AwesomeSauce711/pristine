@@ -40,10 +40,7 @@ import 'server-only';
  */
 
 import {
-  Box, Mp4Error, audioTraks, be32, buildBox, cat, children, findBox, findPath,
-  nextTrackIdOffset, offsetBoxes, offsetCount, parseStsc, parseStts, parseStsz,
-  putU32, putU64, readOffset, trackIdOffset, traksOf, u32, u64, writeOffset,
-  type SttsEntry, type StscEntry,
+  Box, Mp4Error, audioTraks, be32, buildBox, cat, children, findBox, findPath, nextTrackIdOffset, offsetBoxes, offsetCount, parseStsc, parseStts, parseStsz, putU32, putU64, readOffset, trackIdOffset, traksOf, u32, u64, writeOffset, type SttsEntry, type StscEntry, ascii,
 } from './boxes';
 
 /** Bytes per phantom sample, matching the reference files. */
@@ -72,8 +69,12 @@ export interface PatchResult {
   moov: Uint8Array;
   /** The mdat header the client should write before its own payload bytes. */
   mdatHeader: Uint8Array;
-  /** Zero bytes the client appends after the payload. */
+  /** Total bytes after the payload: fillerHead first, zeros for the rest. */
   fillerLen: number;
+  /** Bytes that must be written at the start of the filler (empty when none). */
+  fillerHead: Uint8Array;
+  /** True when the file had no audio and a silent track was supplied. */
+  synthesisedAudio: boolean;
   /** Total size of the file the client will assemble. */
   outputLen: number;
   realSamples: number;
@@ -125,18 +126,36 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
 
   let moov = input.moov;
   let clonedTrack = false;
+  let fillerHead: Uint8Array = new Uint8Array(0);
+  let synthesisedAudio = false;
 
   /* ---- manufacture a decoy if there is not already one ------------------ */
 
   if (audioTraks(moov).length < 2) {
-    const audio = audioTraks(moov);
-    if (!audio.length) {
-      throw new Mp4Error(
-        'no_audio',
-        'This video has no audio track, so there is nothing to use as a decoy. ' +
-          'Add one (even a silent one) and try again.',
-      );
+    if (!audioTraks(moov).length) {
+      /*
+       * No audio at all. Rather than send the reader back to their editor, a
+       * silent track is supplied here -- a real, valid AAC-LC stream of
+       * silence, its samples written into the file after the payload -- and
+       * everything below then treats it exactly like a track the file arrived
+       * with. To a player it is a video with silent audio, which is what it
+       * would have been anyway.
+       */
+      const mv = findBox(moov, 'mvhd', 8, moov.length);
+      if (!mv) throw new Mp4Error('no_mvhd', 'This video is missing its movie header.');
+      const id = u32(moov, nextTrackIdOffset(moov, mv));
+      const silent = buildSilentTrak(moov, mv, id, payloadStart + payloadLen);
+      const kids0 = children(moov, 8, moov.length);
+      moov = buildBox('moov', cat([
+        ...kids0.map((k) => moov.subarray(k.pos, k.pos + k.size)),
+        silent.trak,
+      ]));
+      const mv1 = findBox(moov, 'mvhd', 8, moov.length);
+      if (mv1) putU32(moov, nextTrackIdOffset(moov, mv1), id + 1);
+      fillerHead = silent.bytes;
+      synthesisedAudio = true;
     }
+    const audio = audioTraks(moov);
     const mvhd = findBox(moov, 'mvhd', 8, moov.length);
     if (!mvhd) throw new Mp4Error('no_mvhd', 'This video is missing its movie header.');
     const nextId = u32(moov, nextTrackIdOffset(moov, mvhd));
@@ -296,7 +315,9 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
 
   /* ---- lay the file out and fix every offset --------------------------- */
 
-  const fillerLen = phantom * PHANTOM_SIZE;
+  /* The filler: the silent track's own samples first (when there is one),
+   * then the phantoms' zeros. Both live after the payload, inside mdat. */
+  const fillerLen = fillerHead.length + phantom * PHANTOM_SIZE;
   const newMdatSize = 8 + payloadLen + fillerLen;
   /* mdat needs a 64-bit header once its own size passes 4 GB; writing a 32-bit
    * one there would silently truncate the length field. */
@@ -312,7 +333,7 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
 
   const newDataStart = ftypLen + newMoov.length + mdatHeaderLen;
   const shift = newDataStart - payloadStart;
-  const fillerOffset = newDataStart + payloadLen;
+  const fillerOffset = newDataStart + payloadLen + fillerHead.length;
 
   const decoyOffsetBox = (() => {
     const nAudio = audioTraks(newMoov);
@@ -350,6 +371,8 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
     moov: newMoov,
     mdatHeader,
     fillerLen,
+    fillerHead,
+    synthesisedAudio,
     outputLen: ftypLen + newMoov.length + mdatHeaderLen + payloadLen + fillerLen,
     realSamples: real,
     phantomSamples: phantom,
@@ -357,6 +380,92 @@ export function buildPatchedMoov(input: PatchInput): PatchResult {
     neutralisedEdts: decoyEdtsPos >= 0,
     movedMoov: input.movedMoov ?? false,
   };
+}
+
+/*
+ * A silent AAC-LC track, built from nothing.
+ *
+ * 44.1 kHz stereo, 1024 samples a frame; every frame is the same six-byte
+ * AAC-LC "silence" frame, which is what an encoder emits for digital silence
+ * once it has settled. The sample bytes are handed back to be written into the
+ * file after the payload; the chunk offset is written in the ORIGINAL file's
+ * coordinates (just after the payload) so that the offset shift applied to
+ * every track below lands it exactly where the bytes go.
+ */
+const SILENT_FRAME = new Uint8Array([0x21, 0x10, 0x04, 0x60, 0x8c, 0x1c]);
+const AAC_RATE = 44100;
+const AAC_FRAME = 1024;
+/* AudioSpecificConfig: AAC-LC, 44.1 kHz, stereo. */
+const AAC_ASC = new Uint8Array([0x12, 0x10]);
+
+const be16 = (n: number): Uint8Array => new Uint8Array([(n >>> 8) & 0xff, n & 0xff]);
+const zeros = (n: number): Uint8Array => new Uint8Array(n);
+
+function buildSilentTrak(
+  moov: Uint8Array,
+  mvhd: Box,
+  trackId: number,
+  chunkOffset: number,
+): { trak: Uint8Array; bytes: Uint8Array } {
+  const v1 = moov[mvhd.pos + 8] === 1;
+  const timescale = v1 ? u32(moov, mvhd.pos + 8 + 20) : u32(moov, mvhd.pos + 8 + 12);
+  const duration = v1 ? u64(moov, mvhd.pos + 8 + 24) : u32(moov, mvhd.pos + 8 + 16);
+  const seconds = timescale > 0 ? duration / timescale : 0;
+  const frames = Math.max(1, Math.ceil((seconds * AAC_RATE) / AAC_FRAME));
+  const mediaDuration = frames * AAC_FRAME;
+  const trackDuration = Math.round((mediaDuration / AAC_RATE) * timescale);
+
+  const bytes = new Uint8Array(frames * SILENT_FRAME.length);
+  for (let i = 0; i < frames; i++) bytes.set(SILENT_FRAME, i * SILENT_FRAME.length);
+
+  /* tkhd, version 0: enabled, in movie, in preview. */
+  const tkhd = buildBox('tkhd', cat([
+    be32(0x00000007), be32(0), be32(0), be32(trackId), be32(0), be32(trackDuration),
+    zeros(8), be16(0), be16(0), be16(0x0100), be16(0),
+    be32(0x00010000), be32(0), be32(0), be32(0), be32(0x00010000), be32(0), be32(0), be32(0), be32(0x40000000),
+    be32(0), be32(0),
+  ]));
+  const mdhd = buildBox('mdhd', cat([
+    be32(0), be32(0), be32(0), be32(AAC_RATE), be32(mediaDuration), be16(0x55c4), be16(0),
+  ]));
+  const hdlr = buildBox('hdlr', cat([
+    be32(0), be32(0), ascii('soun'), zeros(12), ascii('SoundHandler'), zeros(1),
+  ]));
+  const smhd = buildBox('smhd', cat([be32(0), be16(0), be16(0)]));
+  const dinf = buildBox('dinf', buildBox('dref', cat([
+    be32(0), be32(1), buildBox('url ', be32(0x00000001)),
+  ])));
+
+  /* esds: ES > DecoderConfig(AAC, audio) > DecoderSpecificInfo(ASC) ; SLConfig */
+  const dsi = cat([new Uint8Array([0x05, AAC_ASC.length]), AAC_ASC]);
+  const dcdBody = cat([
+    new Uint8Array([0x40, 0x15, 0x00, 0x06, 0x00]),   // AAC, audio stream, buffer size
+    be32(128_000), be32(128_000),                       // max / average bitrate (nominal)
+    dsi,
+  ]);
+  const dcd = cat([new Uint8Array([0x04, dcdBody.length]), dcdBody]);
+  const sl = new Uint8Array([0x06, 0x01, 0x02]);
+  const esBody = cat([be16(0), new Uint8Array([0x00]), dcd, sl]);
+  const es = cat([new Uint8Array([0x03, esBody.length]), esBody]);
+  const esds = buildBox('esds', cat([be32(0), es]));
+
+  const mp4a = buildBox('mp4a', cat([
+    zeros(6), be16(1),                       // reserved, data_reference_index
+    be16(0), be16(0), be32(0),               // version, revision, vendor
+    be16(2), be16(16), be16(0), be16(0),     // channels, sample size, compression id, packet size
+    be32(AAC_RATE << 16),                    // sample rate, 16.16
+    esds,
+  ]));
+  const stsd = buildBox('stsd', cat([be32(0), be32(1), mp4a]));
+  const stts = buildStts([[frames, AAC_FRAME]]);
+  const stsc = buildStsc([[1, frames, 1]]);
+  const stsz = buildStsz(new Array<number>(frames).fill(SILENT_FRAME.length));
+  const stco = buildBox('stco', cat([be32(0), be32(1), be32(chunkOffset)]));
+  const stbl = buildBox('stbl', cat([stsd, stts, stsc, stsz, stco]));
+  const minf = buildBox('minf', cat([smhd, dinf, stbl]));
+  const mdia = buildBox('mdia', cat([mdhd, hdlr, minf]));
+  const trak = buildBox('trak', cat([tkhd, mdia]));
+  return { trak, bytes };
 }
 
 /** Unused export kept out; traksOf is re-exported only for the test harness. */

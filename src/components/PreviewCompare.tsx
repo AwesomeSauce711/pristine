@@ -389,19 +389,43 @@ export default function PreviewCompare({
 
     /* ---- the programme: a quad, a texture, cover-crop UVs ---- */
     let prog: WebGLProgram | null = null;
-    let tex: WebGLTexture | null = null;
-    let crushTex: WebGLTexture | null = null;
-    let fbo: WebGLFramebuffer | null = null;
+    /*
+     * PING-PONG, AND WHY. Each presented frame is uploaded ONCE, into A on
+     * even frames and B on odd. The clean half samples whichever was uploaded
+     * last -- the full frame rate. The crushed half samples A only, so it holds
+     * every frame for two: the rung's 30fps, shown honestly, and since A is a
+     * frame of the very same sequence it can never be more than that one
+     * deliberate frame behind.
+     */
+    let texA: WebGLTexture | null = null;
+    let texB: WebGLTexture | null = null;
+    let frameNo = 0;
+    /*
+     * ADAPTIVE. The renderer times its own uploads. A phone that cannot carry
+     * a 4K upload and mip chain sixty times a second is stepped down to every
+     * other presented frame -- both halves at 30, still in step -- rather than
+     * left to stutter and drag. Once stepped down it stays down: flapping
+     * between rates is worse than either.
+     */
+    let costEma = 0;
+    let costSamples = 0;
+    let halfRate = false;
+    let cbNo = 0;
     let quad: WebGLBuffer | null = null;
     let uScale: WebGLUniformLocation | null = null;
     let uOffset: WebGLUniformLocation | null = null;
-    let W = 0, H = 0, cw = 0, ch = 0;
+    let uSplit: WebGLUniformLocation | null = null;
+    let uBias: WebGLUniformLocation | null = null;
+    /* Mip levels down from the base for the crushed half: log2 of the
+     * reduction, so a half-size picture is one level, a quarter two. */
+    let bias = 0;
+    let W = 0, H = 0;
     let uvScale: [number, number] = [1, 1];
     let uvOffset: [number, number] = [0, 0];
 
     if (gl) {
-      const vs = `attribute vec2 a; varying vec2 uv; uniform vec2 s; uniform vec2 o;
-        void main(){ uv = (a * 0.5 + 0.5) * s + o; gl_Position = vec4(a, 0.0, 1.0); }`;
+      const vs = `attribute vec2 a; varying vec2 uv; varying vec2 sp; uniform vec2 s; uniform vec2 o;
+        void main(){ sp = a * 0.5 + 0.5; uv = sp * s + o; gl_Position = vec4(a, 0.0, 1.0); }`;
       /*
        * highp where the GPU has it. Fragment shaders default to mediump, and
        * on mobile GPUs mediump is a 10-bit mantissa -- not enough to address
@@ -409,13 +433,29 @@ export default function PreviewCompare({
        * 4K frame comes out soft and slightly blocky. Desktop GPUs run mediump
        * at full precision, which is why the same code looked right on a PC.
        */
+      /*
+       * ONE DRAW, ONE TEXTURE, BOTH HALVES.
+       *
+       * Left of the split the fragment samples a coarser mip level of the very
+       * same texture (a LOD bias), which is a box-filtered downscale drawn back
+       * up -- the same picture the render-target pass produced, without the
+       * pass. Right of the split it samples the base level. The two halves are
+       * therefore one draw call. `held` is the frame stream held at half rate
+       * (see the ping-pong below): the crushed half is the rung's 30fps and can
+       * never be more than that one deliberate frame behind the clean half,
+       * because both come from the same upload sequence. `split` is in screen
+       * fractions; `bias` in mip levels.
+       */
       const fs = `#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
 precision mediump float;
 #endif
-varying vec2 uv; uniform sampler2D t;
-        void main(){ gl_FragColor = texture2D(t, uv); }`;
+varying vec2 uv; varying vec2 sp; uniform sampler2D clean; uniform sampler2D held; uniform float split; uniform float bias;
+        void main(){
+          if (sp.x < split) gl_FragColor = texture2D(held, uv, bias);
+          else gl_FragColor = texture2D(clean, uv);
+        }`;
       const sh = (type: number, src: string) => {
         const h = gl.createShader(type)!;
         gl.shaderSource(h, src); gl.compileShader(h);
@@ -434,7 +474,10 @@ varying vec2 uv; uniform sampler2D t;
       gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
       uScale = gl.getUniformLocation(prog, 's');
       uOffset = gl.getUniformLocation(prog, 'o');
-      gl.uniform1i(gl.getUniformLocation(prog, 't'), 0);
+      uSplit = gl.getUniformLocation(prog, 'split');
+      uBias = gl.getUniformLocation(prog, 'bias');
+      gl.uniform1i(gl.getUniformLocation(prog, 'clean'), 0);
+      gl.uniform1i(gl.getUniformLocation(prog, 'held'), 1);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
 
       const mkTex = (min: number) => {
@@ -446,9 +489,8 @@ varying vec2 uv; uniform sampler2D t;
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         return t;
       };
-      tex = mkTex(mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
-      crushTex = mkTex(gl.LINEAR);
-      fbo = gl.createFramebuffer();
+      texA = mkTex(mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      texB = mkTex(mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     }
 
     /* ---- sizes: the screen's own device pixels, transforms included ---- */
@@ -464,68 +506,61 @@ varying vec2 uv; uniform sampler2D t;
       W = w; H = h;
       c.width = W; c.height = H;
       const reduction = crushReduction(Math.min(v.videoWidth, v.videoHeight), targetShortEdge);
-      cw = Math.max(8, Math.round(W * reduction * BITRATE_SOFTNESS));
-      ch = Math.max(8, Math.round(H * reduction * BITRATE_SOFTNESS));
+      /* The crushed half's resolution as a fraction of the base, expressed
+       * as mip levels below it. */
+      bias = Math.max(0, -Math.log2(Math.max(0.05, reduction * BITRATE_SOFTNESS)));
       /* Cover-crop the video into the box, the way object-fit: cover does. */
       const boxA = W / H;
       const vidA = v.videoWidth / v.videoHeight;
       if (vidA > boxA) { const sx = boxA / vidA; uvScale = [sx, 1]; uvOffset = [(1 - sx) / 2, 0]; }
       else { const sy = vidA / boxA; uvScale = [1, sy]; uvOffset = [0, (1 - sy) / 2]; }
-      if (gl && crushTex) {
-        gl.bindTexture(gl.TEXTURE_2D, crushTex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cw, ch, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-      }
       draw();
     };
 
-    /* ---- one frame: upload once, draw clean, draw crushed under the handle ---- */
+    /* One frame: upload once (into A or B), draw once. */
     let uploaded = -1;
     const draw = () => {
-      if (!gl || !prog || !tex || !crushTex || v.readyState < 2 || W === 0) return;
+      if (!gl || !prog || !texA || !texB || v.readyState < 2 || W === 0) return;
       gl.useProgram(prog);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      /* Upload only when the frame changed; a drag between frames reuses it. */
+      let latest = frameNo % 2 === 0 ? texB : texA;   // the one uploaded last time
       if (v.currentTime !== uploaded || framesDrawn === 0) {
+        const t0 = performance.now();
+        const target = frameNo % 2 === 0 ? texA : texB;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, target);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
         if (mips) gl.generateMipmap(gl.TEXTURE_2D);
         uploaded = v.currentTime;
-        /* The crushed picture: the frame rendered small. Downscale-and-back
-         * is the whole of the effect -- only the resolution, never the colour. */
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, crushTex, 0);
-        gl.viewport(0, 0, cw, ch);
-        gl.disable(gl.SCISSOR_TEST);
-        gl.uniform2f(uScale, uvScale[0], uvScale[1]);
-        gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.bindTexture(gl.TEXTURE_2D, tex);
+        frameNo++;
+        latest = target;
+        const cost = performance.now() - t0;
+        costEma = costSamples === 0 ? cost : costEma * 0.9 + cost * 0.1;
+        costSamples++;
+        if (!halfRate && costSamples >= 24 && costEma > 12) halfRate = true;
       }
-      /* Clean, the whole screen. */
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, latest);
+      gl.activeTexture(gl.TEXTURE1);
+      /* Held: the even-frame texture -- or, stepped down to half rate, the
+       * latest, since both halves are then at 30 anyway. */
+      gl.bindTexture(gl.TEXTURE_2D, halfRate ? latest : texA!);
       gl.viewport(0, 0, W, H);
-      gl.disable(gl.SCISSOR_TEST);
       gl.uniform2f(uScale, uvScale[0], uvScale[1]);
       gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
+      gl.uniform1f(uSplit, Math.max(0, Math.min(1, posRef.current / 100)));
+      gl.uniform1f(uBias, mips ? bias : 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      /* Crushed, left of the handle. */
-      const split = Math.round((W * Math.max(0, Math.min(100, posRef.current))) / 100);
-      if (split > 0) {
-        gl.bindTexture(gl.TEXTURE_2D, crushTex);
-        gl.enable(gl.SCISSOR_TEST);
-        gl.scissor(0, 0, split, H);
-        gl.uniform2f(uScale, 1, 1);
-        gl.uniform2f(uOffset, 0, 0);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        gl.disable(gl.SCISSOR_TEST);
-        gl.bindTexture(gl.TEXTURE_2D, tex);
-      }
       framesDrawn++;
       c.dataset.frames = String(framesDrawn);
+      c.dataset.rate = halfRate ? 'half' : 'full';
     };
     drawRef.current = draw;
 
-    const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
+    const onFrame = () => {
+      cbNo++;
+      if (!halfRate || cbNo % 2 === 0) draw();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+    };
     const tick = () => { draw(); raf = requestAnimationFrame(tick); };
 
     /*
@@ -592,9 +627,8 @@ varying vec2 uv; uniform sampler2D t;
       document.removeEventListener('pointerdown', onGesture, { capture: true });
       document.removeEventListener('touchstart', onGesture, { capture: true });
       if (gl) {
-        if (tex) gl.deleteTexture(tex);
-        if (crushTex) gl.deleteTexture(crushTex);
-        if (fbo) gl.deleteFramebuffer(fbo);
+        if (texA) gl.deleteTexture(texA);
+        if (texB) gl.deleteTexture(texB);
         if (quad) gl.deleteBuffer(quad);
         if (prog) gl.deleteProgram(prog);
       }
