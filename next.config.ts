@@ -85,6 +85,21 @@ const nextConfig: NextConfig = {
           { key: 'Pragma', value: 'no-cache' },
         ],
       },
+      /*
+       * Next serves /public with `max-age=0`, so a returning visitor
+       * revalidates the 11 MB landing clip, the Draco decoder and the hand
+       * model on every visit — and a media element often re-fetches ranges
+       * rather than trusting a 304. These files only ever change with a
+       * deploy, so a week in the browser's cache costs nothing; the weak ETag
+       * the static handler already sends lets a same-name replacement land
+       * on the first revalidation after that.
+       */
+      {
+        source: '/(demo|draco|models)/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' },
+        ],
+      },
     ];
   },
 };

@@ -169,8 +169,8 @@ export function disclosure(plan: Plan, firstChargeAt: Date): string {
       `charged ${money(plan.amount)}, and every ${every} after that, until you cancel. ` +
       `Cancel any time from Account → Billing; cancelling takes effect at the end of the ` +
       `period you have paid for. During the trial you can patch up to ` +
-      `${plan.trialDailyPatchCap} files per day and ${plan.trialPeriodPatchCap} in total; ` +
-      `paid plans have higher limits. Free trials are limited to one per person, and we may ` +
+      `${plan.trialDailyPatchCap} files per day and ${plan.trialPeriodPatchCap} in total, ` +
+      `the same limits as the paid plan. Free trials are limited to one per person, and we may ` +
       `offer this plan without a trial where we identify that one has already been used.`
     : `Your card will be charged ${money(plan.amount)} today and every ${every} after that, ` +
       `until you cancel. Cancel any time from Account → Billing; cancelling takes effect at ` +

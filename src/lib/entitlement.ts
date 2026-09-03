@@ -3,7 +3,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
-import { currentUser, type SessionUser } from '@/lib/auth';
+import { lookupSession, type SessionUser } from '@/lib/auth';
 import { DEV_UNLOCK_COOKIE, DEV_USER, devUnlockAvailable } from '@/lib/dev-access';
 import { PLANS } from '@/lib/plans';
 
@@ -106,7 +106,12 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
     }
   }
 
-  const user = await currentUser();
+  /*
+   * lookupSession, not currentUser: a database that did not answer must
+   * surface as SessionUnavailable to the route, which answers 503, rather
+   * than as "not signed in", which sent a subscriber to the sign-in page.
+   */
+  const user = await lookupSession();
   if (!user) return DENIED('not_signed_in');
 
   const rows = await exec
@@ -137,7 +142,25 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
      * that the same ledger, the same refund handling and the same reset
      * arithmetic apply. There is no plan to rank, no daily cap, no period.
      */
-    const [[bought], [used], [firstBuy]] = await Promise.all([
+    const [firstBuy] = await exec.select({ at: sql<string | null>`min(${schema.patchRefills.createdAt})` })
+      .from(schema.patchRefills)
+      .where(and(
+        eq(schema.patchRefills.userId, user.id),
+        sql`${schema.patchRefills.revokedAt} is null`,
+        gt(schema.patchRefills.createdAt, since),
+      ));
+    /*
+     * Only patches made SINCE the earliest live purchase are spent against
+     * it. A plan that lapsed a few hours ago may have used its own allowance
+     * today; those patches were paid for by the plan, and counting them here
+     * left a buyer with a receipt for 99 cents and nothing to download.
+     */
+    const boughtAt = firstBuy?.at ? new Date(firstBuy.at) : null;
+    /* `bought` sums the same 24-hour set that `boughtAt` is the earliest of;
+     * `used` counts from that earliest row. The two windows must move
+     * together, or a purchase would be summed that its patches are not
+     * counted against. */
+    const [[bought], [used]] = boughtAt ? await Promise.all([
       exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
         .from(schema.patchRefills)
         .where(and(
@@ -149,19 +172,11 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
         .where(and(
           eq(schema.patchJobs.userId, user.id),
           eq(schema.patchJobs.countsAgainstQuota, true),
-          gt(schema.patchJobs.createdAt, since),
+          gt(schema.patchJobs.createdAt, boughtAt),
         )),
-      exec.select({ at: sql<string | null>`min(${schema.patchRefills.createdAt})` })
-        .from(schema.patchRefills)
-        .where(and(
-          eq(schema.patchRefills.userId, user.id),
-          sql`${schema.patchRefills.revokedAt} is null`,
-          gt(schema.patchRefills.createdAt, since),
-        )),
-    ]);
+    ]) : [[{ n: 0 }], [{ n: 0 }]];
     const left = Number(bought?.n ?? 0) - Number(used?.n ?? 0);
-    if (left > 0) {
-      const boughtAt = firstBuy?.at ? new Date(firstBuy.at) : new Date();
+    if (left > 0 && boughtAt) {
       return {
         ok: true,
         user,

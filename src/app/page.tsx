@@ -15,7 +15,6 @@ import GrowIn from '@/components/fx/GrowIn';
 import RibbonField from '@/components/fx/RibbonField';
 import SceneSection from '@/components/fx/SceneSection';
 import Starfield from '@/components/fx/Starfield';
-import { play, soundProps } from '@/lib/sound';
 
 /*
  * The landing page.
@@ -83,8 +82,8 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     a: (
       <>
         No, and this is the part worth understanding. Your video is read on your device, and
-        only a few kilobytes of technical information about the file — never the picture, never
-        the sound — are sent. The finished file is assembled in your browser. Tools that upload
+        only a small amount of technical information about the file — a fraction of a percent
+        of its size, never the picture, never the sound — is sent. The finished file is assembled in your browser. Tools that upload
         the whole file cannot say this.
       </>
     ),
@@ -191,9 +190,6 @@ const KEEP_3D = '[transform-style:preserve-3d]';
 /* The stagger between neighbouring plates, ms. */
 const STAGGER = 90;
 
-/* A counter landing is a tick; four of them land STAGGER ms apart. */
-const tick = () => play('tick');
-
 /**
  * A full-bleed iridescent hairline between sections, faded at both ends so it
  * reads as a line of light rather than a border. Replaces the solid bands the
@@ -240,13 +236,17 @@ export default function Home() {
         <div className="relative overflow-x-clip">
           {/* The scenery, behind the copy at −10 in tree order: the reader's
               engagement raining upward, and thin threads of chrome mirrored
-              to the right so the headline keeps the left third. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10
-                       [mask-image:linear-gradient(to_bottom,#000_38%,transparent_60%)]"
-          >
-            <HeroField />
+              to the right so the headline keeps the left third.
+
+              The thinning-out is done by each canvas in its own shader (the
+              same ramp: solid to 38% down, gone by 60%) rather than by a
+              mask-image here. A CSS mask over two live WebGL canvases made
+              the compositor render both into an offscreen surface the size
+              of hero plus comparison and mask it every frame; in the shader
+              the same fade costs nothing and the field skips the sprites it
+              would have masked away. */}
+          <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+            <HeroField fade />
             <div className="absolute inset-0" style={{ transform: 'scaleX(-1)' }}>
               <RibbonField intensity={0.5} thickness={0.22} />
             </div>
@@ -284,7 +284,7 @@ export default function Home() {
               <h1 className="hero-h1">
                 TikTok <span className="hero-word">compresses</span> your video.{' '}
                 <span className="block">
-                  <span className="brand" {...soundProps('brand')}>Pristine</span> stops it.
+                  <span className="brand">Pristine</span> stops it.
                 </span>
               </h1>
             </div>
@@ -299,7 +299,7 @@ export default function Home() {
 
               <div className="mt-9 flex flex-wrap items-center gap-3">
                 <HeroCta />
-                <Link href="#pricing" className="pill pill-ghost" {...soundProps('hover')}>
+                <Link href="#pricing" className="pill pill-ghost">
                   See pricing
                 </Link>
               </div>
@@ -327,7 +327,8 @@ export default function Home() {
         {/* -------------------------------------------------------- numbers */}
         {/*
           * Four slabs, rising in one after another; each figure counts up
-          * and ticks when it lands. Each slab holds its own <dl> so the
+          * as it lands (silently: a scroll-triggered animation is not
+          * something the reader did). Each slab holds its own <dl> so the
           * markup stays conforming with the slab's layers around it.
           */}
         <Rule />
@@ -344,7 +345,7 @@ export default function Home() {
                   <GrowIn className="iri-line mb-6" delay={i * STAGGER} />
                   <dl>
                     <dt className="brand tabular text-[2.6rem] font-medium leading-none tracking-tight">
-                      <CountUp value={m.n} delay={i * STAGGER} onDone={tick} />
+                      <CountUp value={m.n} delay={i * STAGGER} />
                     </dt>
                     <dd className="mt-3 text-[15px] text-text">{m.l}</dd>
                     <dd className="tabular mt-1 text-[12px] text-dim">{m.s}</dd>
@@ -503,21 +504,24 @@ export default function Home() {
         <Rule />
         <SceneSection id="pricing" className="py-24">
           <div className={`mx-auto max-w-6xl px-6 ${KEEP_3D}`}>
-            <div data-depth="0.05" className="mb-14 text-center">
-              <Reveal>
-                <h2 className="title-3d text-[clamp(1.8rem,3.4vw,2.6rem)]">
-                  Try it on your own video first
-                </h2>
-                <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-muted">
-                  See the result before you pay for it. You only need a plan when you want to
-                  download the file.
-                </p>
-              </Reveal>
-            </div>
             {/* The cards carry the slab material as classes (PricingTable);
-                they are still, so the fade around them flattens nothing. */}
+                they are still, so the fade around them flattens nothing. The
+                heading goes in with them: a subscriber sees their own plan
+                here, and "try it first" is not addressed to them. */}
             <Reveal delay={80}>
-              <PricingTable />
+              <PricingTable
+                intro={
+                  <div data-depth="0.05" className="mb-14 text-center">
+                    <h2 className="title-3d text-[clamp(1.8rem,3.4vw,2.6rem)]">
+                      Try it on your own video first
+                    </h2>
+                    <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-muted">
+                      See the result before you pay for it. You only need a plan when you want to
+                      download the file.
+                    </p>
+                  </div>
+                }
+              />
             </Reveal>
           </div>
         </SceneSection>
@@ -627,7 +631,7 @@ export default function Home() {
           </nav>
         </div>
         <div className="mx-auto max-w-6xl px-6 pb-12">
-          <p className="max-w-3xl text-[11.5px] leading-relaxed text-dim/70">
+          <p className="max-w-3xl text-[11.5px] leading-relaxed text-dim">
             Pristine is not affiliated with, endorsed by, or connected to TikTok or ByteDance.
             &ldquo;TikTok&rdquo; is used only to describe what this tool is compatible with.
             Results depend on your source file, and the behaviour this relies on is outside our

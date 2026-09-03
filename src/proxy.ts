@@ -72,6 +72,10 @@ function canonicalHost(requestHost: string | null): string | null {
       /* fall through to the rule below */
     }
   }
+  /* Nothing configured in production: the public host is a known constant,
+   * the same one siteOrigin falls back to. Deriving it from the request's
+   * own Host would let whoever sent the request choose the redirect. */
+  if (process.env.NODE_ENV === 'production') return 'pristine4k.com';
   /* Nothing configured: the apex is canonical, so www is the twin. */
   return requestHost?.startsWith('www.') ? requestHost.slice(4) : null;
 }

@@ -73,8 +73,12 @@ function Welcome() {
               not that you own this address — and we are not willing to hand over an existing
               account on the strength of the first one.
             </p>
+            {/* A code has just been sent to this address, so the sign-in page
+                is asked to open at the code step for it rather than at the
+                email step, which would ask for a second code. The address is
+                already in this page's URL, so nothing new is exposed. */}
             <Link
-              href="/sign-in?next=%2Fapp"
+              href={`/sign-in?next=%2Fapp&sent=1${email ? `&email=${encodeURIComponent(email)}` : ''}`}
               className="pill pill-primary mt-8 w-full"
             >
               Enter the code

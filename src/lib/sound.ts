@@ -1,15 +1,22 @@
 /*
  * sound.ts — the site's sounds, synthesised.
  *
- * Eight small sounds, made on a Web Audio graph from oscillators and a burst
+ * Four small sounds, made on a Web Audio graph from oscillators and a burst
  * of filtered noise each, so there is nothing to download, nothing to decode
- * and nothing external for the CSP to refuse. They exist for one reason: the
- * page is meant to make the reader want the product, and a soft, bright
- * response to a hover, a reveal, a count landing, a file dropped, is the
- * cheapest dopamine there is. They are designed quiet — heard when listened
- * for, never noticed otherwise — and `reveal`, the ascending chime, is the
- * signature: it plays whenever the Pristine side is shown or the name pops,
- * so the sound and the name become the same thing.
+ * and nothing external for the CSP to refuse. Each marks one moment the
+ * reader caused and cares about, and nothing else:
+ *
+ *   drop     a file landed in the tool
+ *   reveal   the preview is ready (the ascending chime, the signature)
+ *   success  the file was saved — the download, and the download that a
+ *            purchase or a top-up was made for
+ *   tick     sound was switched on, confirming itself in the medium it controls
+ *
+ * Everything decorative has gone: hovers, ticks on counters and progress
+ * steps, pops on a slider crossing, whooshes on panels arriving and on
+ * scrolling to the top. Their names stay in `SoundName` so no caller has to
+ * change; `play('hover')` and the rest simply play nothing, at no cost. The
+ * sign-in, account, legal and pricing pages carry no sound at all.
  *
  * WHY NOTHING PLAYS UNTIL A GESTURE
  * Browsers refuse to start audio until the reader has touched the page, and
@@ -18,32 +25,37 @@
  * capture-phase listeners on `window` for the first pointer, touch and key
  * events, each of which calls `arm()`. They remove themselves the moment the
  * context reports `running` and come back if it ever leaves that state (iOS
- * suspends it for a phone call). Chrome grants activation on `pointerdown`
- * for a mouse but only on `pointerup`/`touchend` for a finger, which is why
- * both ends of each gesture are listened for: a single `touchstart` listener
- * that removed itself would have asked one event too early and never asked
- * again.
+ * suspends it for a phone call, and interrupts it when the tab is put away).
+ * Chrome grants activation on `pointerdown` for a mouse but only on
+ * `pointerup`/`touchend` for a finger, which is why both ends of each gesture
+ * are listened for: a single `touchstart` listener that removed itself would
+ * have asked one event too early and never asked again. A sound asked for
+ * while the context is still waking (Safari resumes asynchronously, even
+ * inside a gesture) is kept for a moment and played when it is running.
  *
  * WHY play() CAN NEVER FAIL
- * It is called from hover handlers, effects and slider callbacks all over the
- * page, on the server render as well as in the browser, and nothing that
- * calls it should have to think about audio. So it is a silent no-op before
- * the context exists, when muted, when the tab is hidden, when the same
- * sound was played less than 45 ms ago, and when eight voices are already
- * sounding — a counter that lands forty times in one frame makes one tick,
- * not a buzz — and the synthesis itself is wrapped so a node the browser
- * lacks becomes silence, not an exception.
+ * It is called from handlers and effects, on the server render as well as in
+ * the browser, and nothing that calls it should have to think about audio.
+ * So it is a silent no-op before the context exists, when muted, when the
+ * tab is hidden, when the same sound was played less than 45 ms ago, and
+ * when six voices are already sounding — and the synthesis itself is wrapped
+ * so a node the browser lacks becomes silence, not an exception.
  *
  * LEVELS
- * Every design peaks near unity before the master, which sits at 0.22
- * (about −13 dB). A gentle compressor in front of it catches two sounds
- * landing together. Muting ramps the master to zero over a few milliseconds
- * rather than stopping voices, so a chime in flight fades instead of
- * clicking off; unmuting is instant so the tick that confirms it is heard.
+ * Every design peaks under unity before the master, which sits at 0.15
+ * (about −16 dB): the loudest of them, `drop`, lands at about −18 dBFS and
+ * the tick at about −26, under a phone's own interface sounds. There is no
+ * compressor (see buildGraph). Attacks are a few milliseconds and decays
+ * short, so nothing clicks on or startles, and the moments that sound are
+ * far enough apart that they do not overlap. Muting ramps the master to zero
+ * over a few milliseconds rather than stopping voices, so a chime in flight
+ * fades instead of clicking off; unmuting is instant so the tick that
+ * confirms it is heard.
  *
  * The choice is kept in `localStorage['pristine.sound']` (`on` / `off`,
- * default on) and the `storage` event carries a change made in another tab
- * into this one, so muting in one tab mutes them all.
+ * default on), read once per document, so it holds across every page; the
+ * `storage` event carries a change made in another tab into this one, so
+ * muting in one tab mutes them all.
  */
 
 export type SoundName = 'hover' | 'tick' | 'pop' | 'reveal' | 'brand' | 'success' | 'drop' | 'whoosh';
@@ -55,22 +67,11 @@ export const SOUND_NAMES: readonly SoundName[] = [
 export interface PlayOptions {
   /** Multiplies the sound's level; 1 is as designed. Clamped to 0–2. */
   gain?: number;
-  /**
-   * Playback rate, as a sampler would take it: 2 is an octave up and half as
-   * long, 0.5 an octave down and twice as long. Clamped to 0.25–4. A counter
-   * can climb in pitch as it climbs in value.
-   */
-  rate?: number;
 }
 
 /* ---- Tuning ------------------------------------------------------------ */
 
-/** The one volume control. Everything below is designed to peak near 1 before it. */
-/*
- * Lowered from 0.22. The site is not a game; the sounds are confirmations.
- * The three that matter -- a file landing, the preview arriving, the download
- * saved -- keep their voicing; the rest are quieter or gone.
- */
+/** The one volume control. Everything below is designed to peak under 1 before it. */
 const MASTER_GAIN = 0.15;
 /** Repeats of the same sound closer together than this are dropped. */
 const MIN_GAP_MS = 45;
@@ -154,7 +155,7 @@ function onStorage(e: StorageEvent) {
 type ContextCtor = typeof AudioContext;
 
 let ctx: AudioContext | null = null;
-/** Where every voice lands: bus → compressor → master → speakers. */
+/** Where every voice lands: bus → master → speakers. */
 let bus: GainNode | null = null;
 let master: GainNode | null = null;
 /** The reverb's input; voices that want a room send a little of themselves here. */
@@ -316,13 +317,24 @@ function removeGestures() {
   for (const ev of GESTURES) window.removeEventListener(ev, onGesture, { capture: true });
 }
 
+/*
+ * Coming back to the tab. iOS Safari interrupts the context when the page is
+ * put away and does not always announce the state it comes back in, so the
+ * gesture listeners go back on whenever the tab is shown with the context
+ * not running; the next touch resumes it. Nothing is resumed from here,
+ * because this is not a gesture.
+ */
+function onVisible() {
+  if (document.hidden || !ctx) return;
+  if (ctx.state !== 'running' && ctx.state !== 'closed') installGestures();
+}
+
 /* ---- Voices ------------------------------------------------------------ */
 
 /*
  * One call to play() is one voice: a few sources scheduled against a shared
- * start time, each with its own envelope, all landing on the bus. `rate`
- * scales every frequency up and every time down, as a sampler's playback
- * rate would; `level` scales every peak.
+ * start time, each with its own envelope, all landing on the bus. `level`
+ * scales every peak.
  */
 interface Voice {
   c: AudioContext;
@@ -331,7 +343,6 @@ interface Voice {
   noise: AudioBuffer;
   t0: number;
   level: number;
-  rate: number;
 }
 
 interface Env {
@@ -378,9 +389,9 @@ interface Hiss extends Env {
  */
 function wire(v: Voice, src: AudioScheduledSourceNode, tail: AudioNode, e: Env, offset = 0): number {
   const { c } = v;
-  const at = v.t0 + (e.at ?? 0) / v.rate;
-  const attack = (e.attack ?? 0.002) / v.rate;
-  const decay = e.decay / v.rate;
+  const at = v.t0 + (e.at ?? 0);
+  const attack = e.attack ?? 0.002;
+  const decay = e.decay;
   const peak = Math.max(0, e.level * v.level);
   const end = at + attack + decay * 6;
 
@@ -424,10 +435,10 @@ function wire(v: Voice, src: AudioScheduledSourceNode, tail: AudioNode, e: Env, 
 function tone(v: Voice, t: Tone): number {
   const o = v.c.createOscillator();
   o.type = t.type;
-  const at = v.t0 + (t.at ?? 0) / v.rate;
-  o.frequency.setValueAtTime(t.freq * v.rate, at);
+  const at = v.t0 + (t.at ?? 0);
+  o.frequency.setValueAtTime(t.freq, at);
   if (t.to !== undefined) {
-    o.frequency.exponentialRampToValueAtTime(t.to * v.rate, at + (t.glide ?? 0.05) / v.rate);
+    o.frequency.exponentialRampToValueAtTime(t.to, at + (t.glide ?? 0.05));
   }
   if (t.detune) o.detune.value = t.detune;
   return wire(v, o, o, t);
@@ -440,48 +451,38 @@ function hiss(v: Voice, h: Hiss): number {
   const f = v.c.createBiquadFilter();
   f.type = h.filter;
   f.Q.value = h.q ?? 1;
-  const at = v.t0 + (h.at ?? 0) / v.rate;
-  f.frequency.setValueAtTime(h.freq * v.rate, at);
+  const at = v.t0 + (h.at ?? 0);
+  f.frequency.setValueAtTime(h.freq, at);
   if (h.to !== undefined) {
-    f.frequency.exponentialRampToValueAtTime(h.to * v.rate, at + (h.glide ?? 0.05) / v.rate);
+    f.frequency.exponentialRampToValueAtTime(h.to, at + (h.glide ?? 0.05));
   }
   s.connect(f);
   /* Start somewhere in the buffer, so two bursts in a row are not the same grain. */
   return wire(v, s, f, h, Math.random() * 1.2);
 }
 
-/* ---- The eight sounds -------------------------------------------------- */
+/* ---- The four sounds --------------------------------------------------- */
 
 /* Pitches, Hz. Everything tonal lives in E major, so any two that overlap agree. */
 const E5 = 659.255;
 const GS5 = 830.609;
 const B5 = 987.767;
 const E6 = 1318.51;
-const E7 = 2637.02;
-const GS7 = 3322.44;
-const B7 = 3951.07;
+const A6 = 1760;
 
-/* Each design schedules its sources and returns the time the last one stops. */
-const DESIGNS: Record<SoundName, (v: Voice) => number> = {
-  /* A fingertip touching glass: one soft sine tap, a little under 1.5 kHz,
-   * falling as it goes, about fifteen milliseconds. No noise grain — the
-   * grain read as static. */
-  /* Silent. A chirp on every button hover was the "unnecessary" one: it
-   * fired dozens of times a minute for nothing that had happened. The name
-   * stays so no caller changes; it simply plays nothing. */
-  hover: () => 0,
-
-  /* A rounder, slightly higher tap for a counter landing on its figure or a
-   * step of the slider. */
+/*
+ * Each design schedules its sources and returns the time the last one stops.
+ * A name with no design here is silent, and play() returns for it before it
+ * touches a voice: that is how the decorative sounds were removed without
+ * removing their names.
+ */
+const DESIGNS: Partial<Record<SoundName, (v: Voice) => number>> = {
+  /* A soft tap for the sound switching itself on: a sine falling A6 → E6
+   * over about eighty milliseconds. Pitched and levelled so a laptop or a
+   * phone can actually reproduce it, which the old 2.2 kHz, 25 ms version
+   * could not; still well under the drop and the chime. */
   tick: (v) =>
-    tone(v, { type: 'sine', freq: 2200, to: 1700, glide: 0.01, level: 0.09, attack: 0.0008, decay: 0.004 }),
-
-  /* A bubble: a sine rising 380 → 640 Hz as it bursts, gone in ninety milliseconds. */
-  pop: (v) =>
-    Math.max(
-      tone(v, { type: 'sine', freq: 380, to: 640, glide: 0.09, level: 0.38, attack: 0.003, decay: 0.028 }),
-      hiss(v, { filter: 'highpass', freq: 1800, level: 0.06, attack: 0.0005, decay: 0.0015 }),
-    ),
+    tone(v, { type: 'sine', freq: A6, to: E6, glide: 0.02, level: 0.32, attack: 0.001, decay: 0.014 }),
 
   /*
    * The signature: E5 → B5 → E6, a bright triangle with a detuned twin for
@@ -502,23 +503,6 @@ const DESIGNS: Record<SoundName, (v: Voice) => number> = {
         tone(v, { type: 'sine', freq: f * 2, at, level: 0.07, attack: 0.002, decay: 0.045, pan, wet: 0.35 }),
       );
     });
-    return end;
-  },
-
-  /* A sparkle for the name: three high sines, staggered, each lifting a
-   * little as it fades, over a breath of the very top of the noise. */
-  brand: (v) => {
-    let end = 0;
-    [E7, GS7, B7].forEach((f, i) => {
-      end = Math.max(
-        end,
-        tone(v, {
-          type: 'sine', freq: f, to: f * 1.03, glide: 0.04, at: i * 0.05,
-          level: 0.2 - i * 0.03, attack: 0.0015, decay: 0.045, pan: (i - 1) * 0.35, wet: 0.35,
-        }),
-      );
-    });
-    end = Math.max(end, hiss(v, { filter: 'highpass', freq: 7000, level: 0.045, attack: 0.01, decay: 0.03, wet: 0.3 }));
     return end;
   },
 
@@ -544,21 +528,16 @@ const DESIGNS: Record<SoundName, (v: Voice) => number> = {
     return end;
   },
 
-  /* Something set down: a low sine drooping through 120 Hz, a breath of air
-   * darkening as it settles, and the faintest click of contact. */
+  /* Something set down: a low sine drooping 220 → 130 Hz, a breath of air
+   * darkening as it settles, and a small click of contact. The body sits
+   * above the roll-off of a phone or laptop speaker (they lose almost
+   * everything under 150 Hz, which is where the old 150 → 96 Hz body lived),
+   * so the thud is heard as a thud and not as the click alone. */
   drop: (v) =>
     Math.max(
-      tone(v, { type: 'sine', freq: 150, to: 96, glide: 0.08, level: 0.55, attack: 0.002, decay: 0.09 }),
+      tone(v, { type: 'sine', freq: 220, to: 130, glide: 0.08, level: 0.5, attack: 0.004, decay: 0.08 }),
       hiss(v, { filter: 'lowpass', freq: 900, to: 260, glide: 0.18, q: 0.7, level: 0.2, attack: 0.006, decay: 0.07 }),
-      hiss(v, { filter: 'bandpass', freq: 2400, level: 0.06, attack: 0.0005, decay: 0.003 }),
-    ),
-
-  /* Air moving past: a band of noise sweeping up and to the left, then down
-   * and to the right, two hundred milliseconds. */
-  whoosh: (v) =>
-    Math.max(
-      hiss(v, { filter: 'bandpass', freq: 500, to: 2600, glide: 0.11, q: 1.6, level: 0.26, attack: 0.06, decay: 0.04, pan: -0.35 }),
-      hiss(v, { filter: 'bandpass', freq: 2200, to: 600, glide: 0.1, q: 1.6, level: 0.2, at: 0.09, attack: 0.03, decay: 0.04, pan: 0.35 }),
+      hiss(v, { filter: 'bandpass', freq: 2400, level: 0.12, attack: 0.0005, decay: 0.004 }),
     ),
 };
 
@@ -575,16 +554,15 @@ let ends: number[] = [];
  */
 export function play(name: SoundName, opts?: PlayOptions): void {
   if (typeof window === 'undefined' || !ctx || !bus || !noise) return;
+  const design = DESIGNS[name];
+  if (!design) return;
   if (!isEnabled() || document.hidden) return;
   if (ctx.state !== 'running') {
     /* Waking up (Safari resumes asynchronously even inside a gesture): keep
-     * the one sound that matters and play it the moment we are running. A
-     * hover is not worth keeping. */
-    if (name !== 'hover') pending = { name, opts, at: performance.now() };
+     * the sound and play it the moment we are running. */
+    pending = { name, opts, at: performance.now() };
     return;
   }
-  const design = DESIGNS[name];
-  if (!design) return;
 
   const now = performance.now();
   if (now - (lastAt[name] ?? -Infinity) < MIN_GAP_MS) return;
@@ -599,7 +577,6 @@ export function play(name: SoundName, opts?: PlayOptions): void {
     noise,
     t0: ctx.currentTime + LOOKAHEAD_S,
     level: clamp(opts?.gain ?? 1, 0, 2),
-    rate: clamp(opts?.rate ?? 1, 0.25, 4),
   };
   try {
     const end = design(v);
@@ -619,10 +596,12 @@ interface HoverProps {
 const hoverCache = new Map<SoundName, HoverProps>();
 
 /**
- * `{ onPointerEnter }` that plays `name` — spread it onto any control for a
- * hover sound: `<Link {...soundProps('hover')} …>`. A finger does not hover,
- * so touch is ignored. Only usable where a function can be passed, i.e. from
- * a client component; from a server component use `soundAttrs()` instead.
+ * `{ onPointerEnter }` that plays `name` — spread it onto a control for a
+ * sound on hover: `<Link {...soundProps('tick')} …>`. A finger does not
+ * hover, so touch is ignored. Only usable from a client component, where a
+ * function can be passed. Nothing on the site uses it at present — every
+ * hover sound was removed — and it stays as an API so nothing that did has
+ * to change.
  */
 export function soundProps(name: SoundName, opts?: PlayOptions): HoverProps {
   if (!opts) {
@@ -639,32 +618,10 @@ export function soundProps(name: SoundName, opts?: PlayOptions): HoverProps {
   return props;
 }
 
-/**
- * The same hover sound as a `data-sound` attribute, for controls rendered by
- * a server component (a function prop cannot cross to a client component;
- * a string can). One delegated `pointerover` listener on `window` plays it.
- */
-export function soundAttrs(name: SoundName): { 'data-sound': SoundName } {
-  return { 'data-sound': name };
-}
-
-function onPointerOver(e: PointerEvent) {
-  if (e.pointerType === 'touch') return;
-  const target = e.target;
-  if (!(target instanceof Element)) return;
-  const el = target.closest('[data-sound]');
-  if (!el) return;
-  /* Moving between children of the control is not entering it. */
-  const from = e.relatedTarget;
-  if (from instanceof Node && el.contains(from)) return;
-  const name = el.getAttribute('data-sound');
-  if (name && (SOUND_NAMES as readonly string[]).includes(name)) play(name as SoundName);
-}
-
 /* ---- Wiring, once, in the browser -------------------------------------- */
 
 if (typeof window !== 'undefined') {
   installGestures();
   window.addEventListener('storage', onStorage);
-  window.addEventListener('pointerover', onPointerOver, { passive: true });
+  document.addEventListener('visibilitychange', onVisible);
 }

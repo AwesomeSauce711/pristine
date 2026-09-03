@@ -1,6 +1,7 @@
 import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
-import { denialMessage, denialStatus, resolveAccess, type Denial } from '@/lib/entitlement';
+import { SessionUnavailable } from '@/lib/auth';
+import { denialMessage, denialStatus, resolveAccess, type Access, type Denial } from '@/lib/entitlement';
 import { clientIp, limit, requestIp, tooMany } from '@/lib/ratelimit';
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { DEFAULT_MULTIPLIER, buildPatchedMoov } from '@/lib/mp4/patch.server';
@@ -73,7 +74,16 @@ export async function POST(req: Request) {
 
   /* ---- 1. entitlement, before any work is done ------------------------- */
 
-  const access = await resolveAccess();
+  /* A session the database could not answer for is "try again", not 401:
+   * a 401 sends the reader to sign in, and they are signed in. */
+  let access: Access;
+  try {
+    access = await resolveAccess();
+  } catch (e) {
+    if (!(e instanceof SessionUnavailable)) throw e;
+    console.error('[patch] session lookup failed', e.cause);
+    return fail(503, 'unavailable', 'Please try again in a moment. This has not used one of your patches.');
+  }
   /*
    * A used-up allowance -- or no allowance at all: a plan that lapsed, a
    * single download already used -- is not a refusal yet. The same file
@@ -209,6 +219,12 @@ export async function POST(req: Request) {
       return { id: row.id, dailyRemaining: fresh.dailyRemaining, repeat: false };
     });
   } catch (e) {
+    /* The re-count inside the lock resolves the session again by the same
+     * path; the same answer applies if the database dropped out mid-way. */
+    if (e instanceof SessionUnavailable) {
+      console.error('[patch] session lookup failed', e.cause);
+      return fail(503, 'unavailable', 'Please try again in a moment. This has not used one of your patches.');
+    }
     console.error('[patch] could not reserve usage', e);
     return fail(500, 'internal',
       "Something went wrong on our end, and this hasn't used one of your patches.");

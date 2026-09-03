@@ -125,11 +125,15 @@ export default function CompareStage({ src, hand = true }: Props) {
 
   return (
     <figure ref={rootRef} className="relative w-full">
+      {/* Hidden outright once faded: the pill's backdrop blur re-samples the
+          stage behind it every frame the video plays, even at opacity 0.
+          `visibility` is in the transition list, so it flips only when the
+          fade-out has finished and at once on the way back in. */}
       <div
         ref={hintRef}
         aria-live="polite"
-        className={`pointer-events-none absolute inset-x-0 top-[44%] z-30 flex justify-center px-6 transition-all duration-500 ease-out ${
-          hint ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
+        className={`pointer-events-none absolute inset-x-0 top-[44%] z-30 flex justify-center px-6 transition-[opacity,transform,visibility] duration-500 ease-out ${
+          hint ? 'translate-y-0 opacity-100' : 'invisible translate-y-2 opacity-0'
         }`}
       >
         <span className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-black/60 px-4 py-2 text-[13px] text-text shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur-md">

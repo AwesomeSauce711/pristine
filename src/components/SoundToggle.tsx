@@ -1,6 +1,6 @@
 'use client';
 
-import { arm, play, soundProps } from '@/lib/sound';
+import { arm, play } from '@/lib/sound';
 import { useSoundEnabled } from '@/lib/useSound';
 
 /*
@@ -31,10 +31,9 @@ import { useSoundEnabled } from '@/lib/useSound';
  * The hover helper, available from here as well as from src/lib/sound.ts so
  * a control next to the toggle can take both from one import. From a CLIENT
  * component only: this file is a client module, so a server component that
- * imports the helper from here receives a reference it cannot call — a server
- * component takes `soundAttrs()` from src/lib/sound.ts instead.
+ * imports the helper from here receives a reference it cannot call.
  */
-export { soundProps, soundAttrs } from '@/lib/sound';
+export { soundProps } from '@/lib/sound';
 
 interface Props {
   className?: string;
@@ -61,7 +60,6 @@ export default function SoundToggle({ className }: Props) {
       aria-label={on ? 'Sound on' : 'Sound off'}
       aria-pressed={on}
       onClick={toggle}
-      {...soundProps('hover')}
     >
       <svg
         viewBox="0 0 24 24"

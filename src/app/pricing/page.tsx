@@ -56,22 +56,26 @@ export default async function PricingPage() {
         <FieldBackdrop />
 
         <main id="main" className="mx-auto max-w-6xl px-6 pt-28 pb-20 md:pt-32 md:pb-24">
-          <div className="mb-14 text-center">
-            <h1 className="title-3d text-[clamp(2rem,4vw,2.9rem)] leading-[1.05]">
-              Pay only for the download
-            </h1>
-            <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-muted">
-              Uploading, analysing and previewing your video is free and needs no account. A plan
-              is only needed when you want the finished file itself.
-            </p>
-          </div>
-
+          {/* The pitch goes in with the table: a subscriber sent here by
+              Account → Upgrade sees their own plan, not the first-visit line. */}
           <SceneSection>
-            <PricingTable />
+            <PricingTable
+              intro={
+                <div className="mb-14 text-center">
+                  <h1 className="title-3d text-[clamp(2rem,4vw,2.9rem)] leading-[1.05]">
+                    Pay only for the download
+                  </h1>
+                  <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-muted">
+                    Uploading, analysing and previewing your video is free and needs no account. A
+                    plan is only needed when you want the finished file itself.
+                  </p>
+                </div>
+              }
+            />
           </SceneSection>
 
           <SceneSection className="mx-auto mt-24 max-w-2xl">
-            <h2 className="title-3d text-[1.3rem]">Before you subscribe</h2>
+            <h2 className="title-3d text-[1.3rem]">Good to know</h2>
             <div className="mt-7 space-y-4">
               {QUESTIONS.map((f, i) => (
                 <Plate3D key={f.q} depth={8} tilt={1.5} delay={i * 90} className="px-6 py-5">

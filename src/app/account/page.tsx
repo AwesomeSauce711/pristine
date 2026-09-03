@@ -50,8 +50,11 @@ export default async function AccountPage() {
   const showPlan = !!ent && (live || ent.state === 'grace');
   const suspendedForDispute = !!ent?.revokedAt && ent.revokedReason === 'dispute';
 
+  /* In UTC, like the disclosure the customer agreed to (plans.ts): this
+   * renders on the server, whose zone would otherwise shift a late-evening
+   * charge date by a day. */
   const dateFmt = (d: Date) =>
-    d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+    d.toLocaleDateString('en-US', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <>
@@ -60,7 +63,8 @@ export default async function AccountPage() {
         <p className="mt-2 text-[14.5px] text-muted">{user.email}</p>
 
         <section className="plate plate-face plate-glow mt-10 rounded-panel p-7">
-          <div className="legend">Subscription</div>
+          {/* "Billing", because every disclosure and FAQ says Account → Billing. */}
+          <div className="legend">Billing</div>
 
           {!showPlan ? (
             <>
@@ -84,12 +88,16 @@ export default async function AccountPage() {
                   for {money(99)}, is needed to save the finished file.
                 </p>
               )}
-              <Link
-                href="/pricing"
-                className="pill pill-primary mt-6"
-              >
-                See plans
-              </Link>
+              {/* With bought downloads in hand the daily action is the tool;
+                  the plans are the primary only when there is nothing to spend. */}
+              {access.ok && access.dailyRemaining > 0 ? (
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link href="/app" className="pill pill-primary">Use a download</Link>
+                  <Link href="/pricing" className="pill pill-ghost">See plans</Link>
+                </div>
+              ) : (
+                <Link href="/pricing" className="pill pill-primary mt-6">See plans</Link>
+              )}
             </>
           ) : (
             <>
@@ -111,20 +119,20 @@ export default async function AccountPage() {
                 ) : ent.state === 'grace' ? (
                   <span className="text-warn">
                     Your last payment failed. Update your card to keep access
-                    {until ? <> — it ends on <span className="tabular">{dateFmt(until)}</span></> : null}.
+                    {until ? <> — it ends on <span className="tabular">{dateFmt(until)}</span> (UTC)</> : null}.
                   </span>
                 ) : ent.cancelAtPeriodEnd && until ? (
                   <>Cancelled. You keep full access until{' '}
-                    <span className="tabular text-text">{dateFmt(until)}</span>, and will not be
+                    <span className="tabular text-text">{dateFmt(until)}</span> (UTC), and will not be
                     charged again.</>
                 ) : ent.inTrial && until ? (
                   <>Free trial. Your card will first be charged{' '}
                     <span className="tabular text-text">
                       {plan ? money(plan.amount) : ''} on {dateFmt(until)}
                     </span>{' '}
-                    unless you cancel before then.</>
+                    (UTC) unless you cancel before then.</>
                 ) : until ? (
-                  <>Renews on <span className="tabular text-text">{dateFmt(until)}</span>.</>
+                  <>Renews on <span className="tabular text-text">{dateFmt(until)}</span> (UTC).</>
                 ) : null}
               </p>
 
@@ -147,6 +155,12 @@ export default async function AccountPage() {
                 </dl>
               )}
 
+              {/* The page a daily customer is sent to has to lead back to the
+                  tool without waiting for the dock; not while suspended, when
+                  the tool would refuse them. */}
+              {!ent.revokedAt && (
+                <Link href="/app" className="pill pill-primary mt-7">Upload a video</Link>
+              )}
               <BillingActions upgrade={!!plan && plan.id !== 'year' && !ent.revokedAt} />
             </>
           )}

@@ -3,7 +3,7 @@ import type Stripe from 'stripe';
 import { db, schema } from '@/db';
 import { currentUser } from '@/lib/auth';
 import { PriceMismatchError, planForPriceId, stripe, verifiedPriceIdForPlan } from '@/lib/billing/stripe';
-import { syncSubscription } from '@/lib/billing/sync';
+import { isScheduledToEnd, syncSubscription } from '@/lib/billing/sync';
 import { methodStatus, sellingIsOpen } from '@/lib/method-status';
 import { PLANS, PLAN_ORDER, money, type PlanId } from '@/lib/plans';
 import { limit, requestIp, tooMany } from '@/lib/ratelimit';
@@ -149,6 +149,30 @@ export async function POST(req: Request) {
   const item = current.items.data[0];
   if (!item) {
     return Response.json({ code: 'internal', message: 'The plan could not be changed just now. Nothing has been charged.' }, { status: 500 });
+  }
+
+  /*
+   * A subscription already set to end -- cancelled from the portal, then
+   * upgraded -- must have that cancellation released FIRST, on its own. An
+   * upgrade applied on top of a scheduled end is prorated only up to that
+   * end: a customer who agreed to $29.99 a year was charged 57 cents for the
+   * seven days left of a cancelled trial, and the plan still ended. Released
+   * here, the price change below is prorated against a full term, and the
+   * disclosure they ticked ("until you cancel") is true again.
+   */
+  if (isScheduledToEnd(current)) {
+    try {
+      await stripe().subscriptions.update(sub.stripeSubscriptionId, {
+        cancel_at_period_end: false,
+        ...(current.cancel_at ? { cancel_at: '' } : {}),
+      });
+    } catch (e) {
+      console.error('[upgrade] could not release the scheduled cancellation', e);
+      return Response.json(
+        { code: 'internal', message: 'The plan could not be changed just now. Nothing has been charged.' },
+        { status: 500 },
+      );
+    }
   }
 
   try {

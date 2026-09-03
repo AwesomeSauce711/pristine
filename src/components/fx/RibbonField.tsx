@@ -226,9 +226,13 @@ void main() {
     0.035 * aspect, 5.9, 2.1,
     0.085 * ws, 0.0, 1.0, 0.12)));
 
-  /* Dissolve before the bottom edge so the next section is not cut by a
-     hard line of chrome. */
-  float fade = smoothstep(0.0, 0.16, gl_FragCoord.y / uResolution.y);
+  /* Dissolve over the lower part of the canvas so the next section is not
+     cut by a hard line of chrome. The ramp is the one the landing page used
+     to apply as a CSS mask over this canvas and the field beside it — solid
+     down to 38% of the height, gone by 60% — moved in here so the
+     compositor no longer masks a live canvas every frame. Linear, not
+     smoothstep, so it matches the gradient it replaces. */
+  float fade = clamp((gl_FragCoord.y / uResolution.y - 0.40) / 0.22, 0.0, 1.0);
   acc = min(acc * (fade * uIntensity), 1.0);
   /* Premultiplied colour must not exceed alpha, or compositing is undefined. */
   acc.rgb = min(acc.rgb, vec3(acc.a));
@@ -246,8 +250,11 @@ const FALLBACK_STYLE: CSSProperties = {
     'radial-gradient(36% 28% at 28% 72%, rgba(91,140,255,0.45) 0%, rgba(91,140,255,0) 70%)',
     'radial-gradient(30% 24% at 20% 100%, rgba(78,240,255,0.40) 0%, rgba(78,240,255,0) 70%)',
   ].join(', '),
-  WebkitMaskImage: 'linear-gradient(#000 80%, transparent)',
-  maskImage: 'linear-gradient(#000 80%, transparent)',
+  /* The shader's own bottom fade, so the no-WebGL path keeps the same
+   * silhouette. A static gradient masked once is cheap; the mask this
+   * replaces sat over live canvases. */
+  WebkitMaskImage: 'linear-gradient(#000 38%, transparent 60%)',
+  maskImage: 'linear-gradient(#000 38%, transparent 60%)',
 };
 
 interface Scene {

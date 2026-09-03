@@ -4,7 +4,6 @@ import { useEffect, useRef, type CSSProperties } from 'react';
 import {
   compact, engagementAt, ENGAGEMENT_KEYS, CRUSHED_ENGAGEMENT, PRISTINE_ENGAGEMENT, type Engagement,
 } from '@/lib/engagement';
-import { play } from '@/lib/sound';
 
 /*
  * The feed's right rail — heart, comment, bookmark, share — for the in-app
@@ -140,7 +139,8 @@ export default function EngagementRail({ t, className, pristine }: Props) {
     if (tt < REARM_BELOW) armed.current = true;
     if (!armed.current || tt <= POP_AT) return;
     armed.current = false;
-    play('pop');
+    // The pop is visual only: the split is a continuous control, and a sound
+    // on every crossing rang dozens of times a session.
 
     // Emphasis survives reduced motion (the colours still light); the pop does not.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

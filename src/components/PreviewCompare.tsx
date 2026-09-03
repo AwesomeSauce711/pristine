@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sceneIsLite } from '@/lib/scene-tier';
 import EngagementRail from '@/components/EngagementRail';
-import { play } from '@/lib/sound';
 import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
 import type { Engagement } from '@/lib/engagement';
 
@@ -139,15 +138,6 @@ export function crushReduction(shortEdge: number, targetShortEdge: number, scree
 /* Motion drive: the fraction of the remaining distance closed per 60 Hz frame. */
 const FOLLOW = 0.12;
 
-/* The chime rings as the split crosses the middle toward Pristine... */
-const REVEAL_AT = 50;
-/* ...and re-arms only once it has come clearly back, so a pointer resting on
- * the line does not ring it every frame. Mirrors EngagementRail's pop. */
-const REARM_ABOVE = 56;
-
-/* The keys a range input steps on; each step is a tick. */
-const STEP_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
-
 /*
  * `crushedLikes` and `pristineLikes` remain part of Props — the app page passes
  * them — but every count on the rail comes from src/lib/engagement.ts, so they
@@ -193,13 +183,11 @@ export default function PreviewCompare({
   const reportRef = useRef(onPositionChange);
   useEffect(() => { reportRef.current = onPositionChange; }, [onPositionChange]);
   /*
-   * The chime, on the crossing toward Pristine, played in the same tick as
-   * the crossing rather than from an effect after the paint. Armed while the
-   * split is at or past the line on the crushed side, so mounting past it
-   * does not ring and the first crossing does; it re-arms only once the split
-   * has come clearly back. The rail's pop lands on the same crossing.
+   * The split makes no sound of its own. With `motionDrive` it follows the
+   * cursor and the phone's tilt, so a chime on the crossing toward Pristine
+   * rang on every sweep across the stage; the preview's one `reveal`, when
+   * it is ready, is the sound of the Pristine side now (app/page.tsx).
    */
-  const revealArmed = useRef(pos >= REVEAL_AT);
   /*
    * WHY THE SPLIT IS NOT REACT STATE ON THE WAY THROUGH
    * A drag on a phone fires pointer events at up to 120 a second, and the
@@ -226,11 +214,6 @@ export default function PreviewCompare({
         lastReport.current = now;
         setPos(p);
         reportRef.current?.(p);
-        if (p >= REARM_ABOVE) revealArmed.current = true;
-        if (revealArmed.current && p < REVEAL_AT) {
-          revealArmed.current = false;
-          play('reveal');
-        }
       } else {
         /* Too soon for React; make sure the last position still lands. */
         frameHandle.current = requestAnimationFrame(() => {
@@ -551,8 +534,13 @@ varying vec2 uv; varying vec2 sp; uniform sampler2D clean; uniform sampler2D hel
       gl.uniform1f(uBias, mips ? bias : 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       framesDrawn++;
-      c.dataset.frames = String(framesDrawn);
-      c.dataset.rate = halfRate ? 'half' : 'full';
+      /* Diagnostics for tests and the dev tools, not for the page: an
+         attribute write per drawn frame is a style invalidation sixty times
+         a second, so production skips them. */
+      if (process.env.NODE_ENV !== 'production') {
+        c.dataset.frames = String(framesDrawn);
+        c.dataset.rate = halfRate ? 'half' : 'full';
+      }
     };
     drawRef.current = draw;
 
@@ -650,11 +638,15 @@ varying vec2 uv; varying vec2 sp; uniform sampler2D clean; uniform sampler2D hel
                  rounded-[38px] bg-black"
     >
       {/* The source, full size underneath. Kept visible so a mobile browser
-          does not pause it, and seen only until the first frame is drawn. */}
+          does not pause it, and seen only until the first frame is drawn.
+          preload="metadata", not "auto": autoplay fetches what it needs to
+          start as soon as it is allowed to, and "auto" only told the browser
+          to pull the whole 11 MB clip in one go during page load, ahead of
+          the scripts and fonts the first paint is waiting on. */}
       <video
         ref={videoRef}
         src={effectiveSrc}
-        muted loop playsInline autoPlay preload="auto"
+        muted loop playsInline autoPlay preload="metadata"
         className="absolute inset-0 h-full w-full object-cover"
       />
 
@@ -729,7 +721,6 @@ varying vec2 uv; varying vec2 sp; uniform sampler2D clean; uniform sampler2D hel
       <input
         type="range" min={0} max={100} value={Math.round(pos)}
         onChange={(e) => commitPos(Number(e.target.value))}
-        onKeyDown={(e) => { if (STEP_KEYS.has(e.key)) play('tick'); }}
         aria-label="Compare an ordinary upload with Pristine"
         className="absolute inset-x-0 bottom-0 h-10 w-full cursor-ew-resize opacity-0"
       />

@@ -6,7 +6,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import EngagementBloom from '@/components/EngagementBloom';
 import Holograms from '@/components/Holograms';
 import Phone3D, { phoneBox, phoneHeight, screenRatio } from '@/components/Phone3D';
-import { play } from '@/lib/sound';
 import { gyroActive, gyroNeedsPermission, requestGyro, subscribeMotion, tiltFor, type Motion } from '@/lib/stage-motion';
 import type { Engagement } from '@/lib/engagement';
 
@@ -213,15 +212,9 @@ export default function Stage({
     const onVisibility = () => schedule();
     document.addEventListener('visibilitychange', onVisibility);
 
-    /* Arriving: the fade is the class (`is-in`, set with `inView`); this is
-     * the breath of air that goes with it. Silent until the first gesture has
-     * unlocked audio, which is the rule for every sound on the site. */
-    let arrived = false;
-    const arrive = () => {
-      if (arrived) return;
-      arrived = true;
-      play('whoosh', { gain: 0.5 });
-    };
+    /* Arriving is the fade alone (`is-in`, set with `inView`). It used to
+     * carry a whoosh too, but scrolling into view is not something the reader
+     * did, and on /app it landed in the same instant as the preview's chime. */
 
     /* On screen or not. Two observers: a wide one that only loads the hand,
      * and a nearer one that fades the stage in and gates the tilt loop. */
@@ -233,7 +226,6 @@ export default function Stage({
       timer = window.setTimeout(() => {
         setNear(true);
         setInView(true);
-        arrive();
         schedule();
       }, 0);
     } else {
@@ -252,7 +244,6 @@ export default function Stage({
           onScreen.current = on;
           if (!on) return;
           setInView(true);
-          arrive();
           schedule();
         },
         { rootMargin: VIEW_MARGIN },
@@ -299,10 +290,9 @@ export default function Stage({
   }, []);
   const askTilt = async () => {
     const ok = await requestGyro();
-    if (ok) {
-      setTiltAsk(false);
-      play('reveal');
-    }
+    /* The tilt starting is its own confirmation; the preview's chime is
+     * kept for the preview. */
+    if (ok) setTiltAsk(false);
   };
 
   const rest = transformFor(REST);

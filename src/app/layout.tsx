@@ -14,23 +14,29 @@ const inter = Inter({
 /*
  * Inter Tight for the display sizes: the same letterforms as the body face,
  * drawn tighter, so the hero headline reads as one shape at 8rem rather than as
- * a paragraph that got large. Only the two weights the display class uses.
+ * a paragraph that got large. Only the one weight the display class uses.
+ *
+ * Not preloaded: its only consumer is the giant wordmark above the landing
+ * footer, so a preload on every route (the tool, sign-in, legal) spent a
+ * request slot and ~45 KB before first paint on a face that page never
+ * shows. `display: swap` fetches it when the wordmark is reached.
  */
 const interTight = Inter_Tight({
   subsets: ['latin'],
-  weight: ['300', '400'],
+  weight: ['300'],
   variable: '--font-inter-tight',
   display: 'swap',
+  preload: false,
 });
 
 /*
  * Bricolage Grotesque for the hero headline and the section titles: a face
  * with its own character at display sizes, where Inter Tight reads as a
- * larger body face. Three weights; the headline uses the heaviest.
+ * larger body face. Two weights; the headline uses the heavier.
  */
 const bricolage = Bricolage_Grotesque({
   subsets: ['latin'],
-  weight: ['500', '700', '800'],
+  weight: ['700', '800'],
   variable: '--font-bricolage',
   display: 'swap',
 });

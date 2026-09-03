@@ -52,8 +52,9 @@ export default function Terms() {
         <strong>Your video itself is never uploaded.</strong>
       </p>
       <p>
-        Reading and previewing a file is free and needs no account. A subscription is needed to
-        download finished files.
+        Reading and previewing a file is free and needs no account. Downloading a finished file
+        needs an account and either a subscription or a single paid download (see Daily limit
+        and top-ups below).
       </p>
 
       <h2>What we do not promise</h2>
@@ -116,7 +117,8 @@ export default function Terms() {
               {p.trialDays > 0
                 ? `, after a ${p.trialDays}-day free trial. Your card is charged at the end of the trial unless you cancel first.`
                 : '. This plan has no free trial.'}{' '}
-              Fair-use limit: {p.dailyPatchCap} files per day.
+              Fair-use limit: {p.dailyPatchCap} {p.dailyPatchCap === 1 ? 'file' : 'files'} per day
+              and {p.periodPatchCap.toLocaleString()} per {p.interval}.
             </li>
           );
         })}
@@ -202,7 +204,8 @@ export default function Terms() {
       <p>
         The service, its software, its name and its design belong to us or our licensors and are
         protected by intellectual-property law. These terms give you a personal, non-exclusive,
-        non-transferable licence to use the service while you are subscribed, and nothing more.
+        non-transferable licence to use the service while you are subscribed or for the 24 hours
+        covered by a single download, and nothing more.
       </p>
       <p>
         <strong>Other companies&rsquo; products.</strong> Topaz Video AI, HandBrake and TikTok are

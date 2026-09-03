@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import NavCta from '@/components/NavCta';
 import SoundToggle from '@/components/SoundToggle';
 import Wordmark from '@/components/Wordmark';
-import { play, soundProps } from '@/lib/sound';
 import { subscribeMotion } from '@/lib/stage-motion';
 import { stillQuery } from '@/lib/scene-tier';
 
@@ -278,9 +277,10 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
    * goes to the first thing on the page without a second scroll. A mouse click
    * leaves no ring behind (`:focus-visible` carries over only from keyboard
    * focus); a keyboard press lands the ring on the wordmark, which is right.
+   * Silent: the dock is on every page, sign-in and legal included, and a
+   * scroll is not a moment worth a sound.
    */
   const toTop = useCallback(() => {
-    play('whoosh');
     window.scrollTo({ top: 0 });
     homeRef.current?.focus({ preventScroll: true });
   }, []);
@@ -320,7 +320,6 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
                 href="/"
                 aria-label="Pristine home"
                 className="inline-flex transition hover:opacity-90"
-                {...soundProps('brand')}
               >
                 <Wordmark />
               </Link>
@@ -329,16 +328,16 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
 
           <nav className="flex items-center gap-1 sm:gap-2" style={{ transformStyle: 'preserve-3d' }}>
             <span data-depth={DEPTH.link} className="pointer-events-auto hidden sm:inline-flex">
-              <Link href="/#how" className="nav-link" {...soundProps('hover')}>
+              <Link href="/#how" className="nav-link">
                 How to use it
               </Link>
             </span>
             <span data-depth={DEPTH.link} className="pointer-events-auto hidden sm:inline-flex">
-              <Link href="/#pricing" className="nav-link" {...soundProps('hover')}>
+              <Link href="/#pricing" className="nav-link">
                 Pricing
               </Link>
             </span>
-            <span data-depth={DEPTH.cta} className="pointer-events-auto inline-flex" {...soundProps('hover')}>
+            <span data-depth={DEPTH.cta} className="pointer-events-auto inline-flex">
               <NavCta mode="account" />
             </span>
           </nav>
@@ -366,7 +365,7 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
       >
         {cta !== 'none' && (
           /* The dock is the upload button; the corner above is the account. */
-          <span className="inline-flex" {...soundProps('hover')}>
+          <span className="inline-flex">
             <NavCta mode="upload" />
           </span>
         )}
@@ -380,7 +379,6 @@ export default function SceneNav({ variant = 'landing', cta = 'default', dockHid
           className="sound-toggle dock-top inline-grid h-11 w-11 place-items-center rounded-full pointer-fine:h-10 pointer-fine:w-10"
           aria-label="Back to top"
           onClick={toTop}
-          {...soundProps('hover')}
         >
           <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false" width="18" height="18">
             <path

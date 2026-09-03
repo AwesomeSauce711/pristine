@@ -69,9 +69,10 @@ export default function BillingActions({
           {busy === 'portal' ? 'Opening…' : 'Manage billing'}
         </button>
         {/* Only while a bigger plan exists: on the largest plan there is
-            nothing to upgrade to, and the button is not shown. */}
+            nothing to upgrade to, and the button is not shown. A ghost, so
+            the page's one primary is the tool. */}
         {upgrade && (
-          <Link href="/pricing" className="pill pill-primary">Upgrade</Link>
+          <Link href="/pricing" className="pill pill-ghost">Upgrade</Link>
         )}
       </div>
       {error && (

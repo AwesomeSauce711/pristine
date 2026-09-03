@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { soundProps } from '@/lib/sound';
 import { useMe } from '@/lib/use-me';
 
 /*
@@ -12,7 +11,7 @@ import { useMe } from '@/lib/use-me';
 export default function HeroCta() {
   const { entitled } = useMe();
   return (
-    <Link href="/app" className="pill pill-primary" {...soundProps('hover')}>
+    <Link href="/app" className="pill pill-primary">
       {entitled ? 'Upload a video' : 'Try it on your video \u2014 free'}
     </Link>
   );

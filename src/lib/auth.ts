@@ -83,20 +83,27 @@ export interface SessionUser {
   deviceId: string | null;
 }
 
-/**
- * Start a session and set the cookie. Returns the DEVICE id, not the token.
- *
- * The token's only consumer is the cookie this function sets, so returning it
- * would hand a live credential to a caller with no use for it. The device id is
- * what callers actually want — it labels usage rows for the audit trail.
+/*
+ * Anything that can run the statements below: the database handle, or the
+ * transaction redeemLoginCode holds while it burns a code and mints the
+ * session it pays for.
  */
-export async function createSession(userId: string): Promise<string> {
+type DbWriter = Pick<ReturnType<typeof db>, 'insert' | 'update' | 'select'>;
+
+interface MintedSession {
+  token: string;
+  deviceId: string;
+  expiresAt: Date;
+}
+
+/** The row only; the cookie is the caller's, so it can follow a commit. */
+async function insertSession(userId: string, exec: DbWriter): Promise<MintedSession> {
   const token = randomToken();
   const deviceId = randomToken(8);
   const h = await headers();
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
 
-  await db().insert(schema.sessions).values({
+  await exec.insert(schema.sessions).values({
     userId,
     tokenHash: await sha256Hex(token),
     deviceId,
@@ -105,6 +112,10 @@ export async function createSession(userId: string): Promise<string> {
     expiresAt,
   });
 
+  return { token, deviceId, expiresAt };
+}
+
+async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
   const jar = await cookies();
   jar.set(COOKIE, token, {
     httpOnly: true,
@@ -113,12 +124,46 @@ export async function createSession(userId: string): Promise<string> {
     path: '/',
     expires: expiresAt,
   });
-
-  return deviceId;
 }
 
 /**
- * The signed-in user, or null. Never throws — an unreadable session is signed out.
+ * Start a session and set the cookie. Returns the DEVICE id, not the token.
+ *
+ * The token's only consumer is the cookie this function sets, so returning it
+ * would hand a live credential to a caller with no use for it. The device id is
+ * what callers actually want — it labels usage rows for the audit trail.
+ */
+export async function createSession(userId: string): Promise<string> {
+  const minted = await insertSession(userId, db());
+  await setSessionCookie(minted.token, minted.expiresAt);
+  return minted.deviceId;
+}
+
+/**
+ * The session could not be looked up AT ALL, as opposed to there being none.
+ *
+ * The two used to be the same null, and one query the database did not
+ * answer then read as "signed out" on every surface at once: /api/me said
+ * so, /api/patch sent the reader to sign in, the nav flipped to "Sign in".
+ * A route that can answer "try again in a moment" catches this and does.
+ */
+export class SessionUnavailable extends Error {
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super('The session could not be looked up.');
+    this.name = 'SessionUnavailable';
+    this.cause = cause;
+  }
+}
+
+/* Carries the session row's own id and expiry so renewSession need not
+ * fetch the same row a second time. Not part of SessionUser: callers of
+ * currentUser have no business with either. */
+type SessionRow = SessionUser & { sessionId: string; expiresAt: Date };
+
+/**
+ * The session behind the cookie: null for no cookie or no live row, and
+ * SessionUnavailable when the database could not be asked.
  *
  * Memoised per request with React's `cache`: the account page, resolveAccess
  * and anything else on the same render all ask, and each ask was a session
@@ -126,23 +171,26 @@ export async function createSession(userId: string): Promise<string> {
  * The memo lives only for the one server request, so revocation is exactly as
  * immediate as it was.
  */
-export const currentUser = cache(async function currentUser(): Promise<SessionUser | null> {
+export const lookupSession = cache(async function lookupSession(): Promise<SessionRow | null> {
   let token: string | undefined;
   try {
     token = (await cookies()).get(COOKIE)?.value;
   } catch {
+    /* Called outside a request. Nothing to look up; not a fault. */
     return null;
   }
   if (!token) return null;
 
+  let rows: SessionRow[];
   try {
-    const rows = await db()
+    rows = await db()
       .select({
         id: schema.users.id,
         email: schema.users.email,
         stripeCustomerId: schema.users.stripeCustomerId,
         deviceId: schema.sessions.deviceId,
         sessionId: schema.sessions.id,
+        expiresAt: schema.sessions.expiresAt,
       })
       .from(schema.sessions)
       .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
@@ -154,24 +202,30 @@ export const currentUser = cache(async function currentUser(): Promise<SessionUs
         isNull(schema.users.blockedAt),
       ))
       .limit(1);
-
-    const row = rows[0];
-    if (!row) return null;
-
-    // Best-effort activity stamp; never let it fail the request.
-    void db().update(schema.sessions)
-      .set({ lastUsedAt: new Date() })
-      .where(eq(schema.sessions.id, row.sessionId))
-      .catch(() => {});
-
-    return {
-      id: row.id, email: row.email,
-      stripeCustomerId: row.stripeCustomerId, deviceId: row.deviceId,
-    };
-  } catch {
-    return null;
+  } catch (e) {
+    throw new SessionUnavailable(e);
   }
+
+  const row = rows[0];
+  if (!row) return null;
+
+  // Best-effort activity stamp; never let it fail the request.
+  void db().update(schema.sessions)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(schema.sessions.id, row.sessionId))
+    .catch(() => {});
+
+  return row;
 });
+
+/**
+ * The signed-in user, or null. Never throws: when the session cannot be
+ * looked up this answers signed out, which is the right call on the billing
+ * routes and the account gate, where the alternative is a 500 on the money
+ * path. Anything that can say "try again" instead reads lookupSession.
+ */
+export const currentUser = (): Promise<SessionUser | null> =>
+  lookupSession().catch(() => null);
 
 /*
  * SLIDING EXPIRY. A device that keeps coming back should never find itself
@@ -185,22 +239,14 @@ export async function renewSession(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value;
   if (!token) return;
-  const rows = await db()
-    .select({ id: schema.sessions.id, expiresAt: schema.sessions.expiresAt })
-    .from(schema.sessions)
-    .where(and(
-      eq(schema.sessions.tokenHash, await sha256Hex(token)),
-      isNull(schema.sessions.revokedAt),
-      gt(schema.sessions.expiresAt, new Date()),
-    ))
-    .limit(1);
-  const current = rows[0];
+  /* The row this request has already fetched; no second lookup of it. */
+  const current = await lookupSession().catch(() => null);
   if (!current) return;
   const left = current.expiresAt.getTime() - Date.now();
   if (left > (SESSION_DAYS - RENEW_AFTER_DAYS) * 86_400_000) return;
 
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
-  await db().update(schema.sessions).set({ expiresAt }).where(eq(schema.sessions.id, current.id));
+  await db().update(schema.sessions).set({ expiresAt }).where(eq(schema.sessions.id, current.sessionId));
   jar.set(COOKIE, token, {
     httpOnly: true,
     secure: true,
@@ -311,34 +357,47 @@ export async function redeemLoginCode(rawEmail: string, code: string): Promise<S
     return null;
   }
 
-  // Single use, burned before the session is minted.
-  await db().update(schema.loginTokens)
-    .set({ consumedAt: now })
-    .where(eq(schema.loginTokens.id, token.id));
-
+  /*
+   * ONE TRANSACTION from the burn to the session row. The code is single
+   * use, so it is consumed here -- and when the account or session insert
+   * after it failed, the code was already gone: the reader saw "something
+   * went wrong", retried the same digits, and was told the code was not
+   * right. Rolled back together, the same code works on the retry. The
+   * cookie is set after the commit, so it never names a session that was
+   * not written.
+   */
   const h = await headers();
-  const existing = await db().select().from(schema.users)
-    .where(eq(schema.users.email, email)).limit(1);
+  const minted = await db().transaction(async (tx) => {
+    await tx.update(schema.loginTokens)
+      .set({ consumedAt: now })
+      .where(eq(schema.loginTokens.id, token.id));
 
-  let user = existing[0];
-  if (!user) {
-    const created = await db().insert(schema.users).values({
-      email,
-      emailVerifiedAt: now,
-      signupIp: requestIp(h),
-      signupUserAgent: h.get('user-agent')?.slice(0, 500) ?? null,
-    }).returning();
-    user = created[0];
-  } else if (!user.emailVerifiedAt) {
-    await db().update(schema.users)
-      .set({ emailVerifiedAt: now })
-      .where(eq(schema.users.id, user.id));
-  }
+    const existing = await tx.select().from(schema.users)
+      .where(eq(schema.users.email, email)).limit(1);
 
-  const deviceId = await createSession(user.id);
+    let user = existing[0];
+    if (!user) {
+      const created = await tx.insert(schema.users).values({
+        email,
+        emailVerifiedAt: now,
+        signupIp: requestIp(h),
+        signupUserAgent: h.get('user-agent')?.slice(0, 500) ?? null,
+      }).returning();
+      user = created[0];
+    } else if (!user.emailVerifiedAt) {
+      await tx.update(schema.users)
+        .set({ emailVerifiedAt: now })
+        .where(eq(schema.users.id, user.id));
+    }
+
+    const session = await insertSession(user.id, tx);
+    return { user, ...session };
+  });
+
+  await setSessionCookie(minted.token, minted.expiresAt);
   return {
-    id: user.id, email: user.email,
-    stripeCustomerId: user.stripeCustomerId, deviceId,
+    id: minted.user.id, email: minted.user.email,
+    stripeCustomerId: minted.user.stripeCustomerId, deviceId: minted.deviceId,
   };
 }
 

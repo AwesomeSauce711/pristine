@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { getMotion, subscribeMotion } from '@/lib/stage-motion';
-import { play } from '@/lib/sound';
 import { sceneIsLite } from '@/lib/scene-tier';
 
 /*
@@ -405,6 +404,13 @@ function warn(message: string, detail?: unknown) {
 /*
  * One unit quad per instance, sized and rotated in view space so it always
  * faces the camera, reading its own cell of the atlas.
+ *
+ * The bottom fade (`uFade`, see the `fade` prop) is applied here rather than
+ * as a CSS mask over the canvas: a mask over a live WebGL canvas makes the
+ * compositor render it into an offscreen surface and mask that every frame,
+ * while in the shader the same ramp is a multiply — and an instance that
+ * sits wholly inside the faded band is collapsed to a point, so the sprites
+ * the mask used to hide no longer cost any fill at all.
  */
 const VERT = /* glsl */ `
 attribute vec3 aPos;
@@ -416,19 +422,32 @@ attribute vec4 aCell;
 varying vec2 vUv;
 varying vec4 vTint;
 varying vec2 vLook;
+varying float vY;
 uniform float uScale;
+uniform vec2 uFade;
 
 void main() {
   float s = sin(aRot);
   float c = cos(aRot);
   vec2 corner = position.xy * aSize * uScale;
-  vec2 offset = vec2(corner.x * c - corner.y * s, corner.x * s + corner.y * c);
   vec4 mv = modelViewMatrix * vec4(aPos, 1.0);
+  /* Where the instance's highest point can reach, in canvas fractions from
+     the bottom. The offset is applied in view space, so w is the centre's
+     for every corner and the projection is exact; the half diagonal bounds
+     any rotation. Below the fade's start there is nothing to draw. */
+  vec4 centre = projectionMatrix * mv;
+  float top = (centre.y + projectionMatrix[1][1] * 0.5 * length(aSize) * uScale) / centre.w * 0.5 + 0.5;
+  corner *= step(uFade.x, top);
+  vec2 offset = vec2(corner.x * c - corner.y * s, corner.x * s + corner.y * c);
   mv.xy += offset;
   gl_Position = projectionMatrix * mv;
   vUv = mix(aCell.xy, aCell.zw, uv);
   vTint = aTint;
   vLook = aLook;
+  /* Screen height fraction, interpolated linearly across the quad (w is
+     constant over a billboard) and clamped per fragment, so a sprite that
+     straddles the ramp's end fades along the gradient, not along a chord. */
+  vY = gl_Position.y / gl_Position.w * 0.5 + 0.5;
 }
 `;
 
@@ -442,20 +461,41 @@ void main() {
 const FRAG = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uAlpha;
+uniform vec2 uFade;
 varying vec2 vUv;
 varying vec4 vTint;
 varying vec2 vLook;
+varying float vY;
 
 void main() {
   vec2 t = texture2D(uMap, vUv).rg;
   float core = t.r;
   float halo = t.g * vLook.y;
   vec3 light = (vTint.rgb * halo + mix(vTint.rgb, vec3(1.0), vLook.x) * core) * vTint.a * uAlpha;
-  light = min(light, vec3(1.0));
+  /* Linear, like the mask-image gradient this replaces. */
+  light = min(light, vec3(1.0)) * clamp((vY - uFade.x) / uFade.y, 0.0, 1.0);
   float a = max(light.r, max(light.g, light.b));
   gl_FragColor = vec4(light, a);
 }
 `;
+
+/* The `fade` prop as the shader's (start, span), in fractions of the canvas
+ * height from the bottom: solid above 62%, gone below 40% — the ramp the
+ * landing page's mask-image used to draw. Off, the start sits far below the
+ * canvas, so every fragment multiplies by one and nothing collapses. */
+const FADE_ON: readonly [number, number] = [0.4, 0.22];
+const FADE_OFF: readonly [number, number] = [-1000, 1];
+
+/* Run when the main thread is free, or after a beat where the browser has no
+ * idle callback (Safari). Returns a cancel. */
+function whenIdle(fn: () => void, timeout: number): () => void {
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(fn, { timeout });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(fn, 0);
+  return () => window.clearTimeout(id);
+}
 
 /* ------------------------------------------------------------- the atlas */
 
@@ -622,35 +662,44 @@ function whenFontReady(font: string): Promise<void> {
   }
 }
 
-function bakeAtlas(family: string): HTMLCanvasElement | null {
-  const atlas = document.createElement('canvas');
-  atlas.width = ATLAS_W;
-  atlas.height = ATLAS_H;
+/*
+ * `into` is the atlas of an earlier bake. Only the counter cells depend on
+ * the font, so the second bake — the one that waits for the mono face —
+ * redraws those in place and leaves the six icon cells, each of which is
+ * three shadow passes and two pixel readbacks, alone.
+ */
+function bakeAtlas(family: string, into?: HTMLCanvasElement): HTMLCanvasElement | null {
+  const atlas = into ?? document.createElement('canvas');
   const g = atlas.getContext('2d');
   if (!g) return null;
-  g.fillStyle = '#000';
-  g.fillRect(0, 0, ATLAS_W, ATLAS_H);
 
-  /* A 256 px cell, its shape scaled so the unit box spans `share` of it. */
-  const square = (c: number, shape: Shape, share: number, blurs: readonly number[]) =>
-    bakeCell(
-      g,
-      (c % 4) * ICON_CELL,
-      Math.floor(c / 4) * ICON_CELL,
-      ICON_CELL,
-      ICON_CELL,
-      (t, detail) => {
-        t.translate(ICON_CELL / 2, ICON_CELL / 2);
-        t.scale((ICON_CELL * share) / 2, (ICON_CELL * share) / 2);
-        shape(t, detail);
-      },
-      blurs,
-    );
-  for (let k = 0; k < ICON_PATHS.length; k++) {
-    if (!square(k, iconShape(k), SHAPE_SHARE, ICON_BLUR)) return null;
+  if (!into) {
+    atlas.width = ATLAS_W;
+    atlas.height = ATLAS_H;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, ATLAS_W, ATLAS_H);
+
+    /* A 256 px cell, its shape scaled so the unit box spans `share` of it. */
+    const square = (c: number, shape: Shape, share: number, blurs: readonly number[]) =>
+      bakeCell(
+        g,
+        (c % 4) * ICON_CELL,
+        Math.floor(c / 4) * ICON_CELL,
+        ICON_CELL,
+        ICON_CELL,
+        (t, detail) => {
+          t.translate(ICON_CELL / 2, ICON_CELL / 2);
+          t.scale((ICON_CELL * share) / 2, (ICON_CELL * share) / 2);
+          shape(t, detail);
+        },
+        blurs,
+      );
+    for (let k = 0; k < ICON_PATHS.length; k++) {
+      if (!square(k, iconShape(k), SHAPE_SHARE, ICON_BLUR)) return null;
+    }
+    if (!square(CELL_SPARKLE, drawSparkle, SPARKLE_SHARE, SPARK_BLUR)) return null;
+    if (!square(CELL_RING, drawRing, RING_SHARE, RING_BLUR)) return null;
   }
-  if (!square(CELL_SPARKLE, drawSparkle, SPARKLE_SHARE, SPARK_BLUR)) return null;
-  if (!square(CELL_RING, drawRing, RING_SHARE, RING_BLUR)) return null;
 
   /* A font the canvas cannot parse is silently ignored and the text comes
      out at 10px sans; checking the size survived catches that. */
@@ -699,20 +748,42 @@ function bakeAtlas(family: string): HTMLCanvasElement | null {
  * hero's field, 0.5 is what the tool and the pricing page mount — a third
  * smaller and a good deal fainter, a backdrop to a form rather than a show
  * behind a headline. Two uniforms, so a change never rebuilds anything.
+ *
+ * `fade` thins the field out over the lower part of its canvas (solid down
+ * to 38% of the height, gone by 60%), for the landing page, where the canvas
+ * spans the hero and the comparison and must not stop dead under the phone.
+ * A uniform as well; see VERT for why it is not a mask-image.
  */
-export default function HeroField({ className, calm = 1 }: { className?: string; calm?: number }) {
+export default function HeroField({
+  className,
+  calm = 1,
+  fade = false,
+}: {
+  className?: string;
+  calm?: number;
+  fade?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const calmRef = useRef(calm);
+  const fadeRef = useRef(fade);
   const applyCalmRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     calmRef.current = calm;
+    fadeRef.current = fade;
     applyCalmRef.current?.();
-  }, [calm]);
+  }, [calm, fade]);
 
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
+  /*
+   * Everything that lives on the canvas, as a function of the root rather
+   * than an effect body, so the effect below can run it once the main
+   * thread is free: creating the WebGL context and baking the atlas are the
+   * two heaviest things this component does, and run straight from the
+   * mount effect they land in the hydration task, on a phone at the moment
+   * the video below is trying to start. Nothing visible waits on them — the
+   * canvas fades in from transparent whenever its first frame is ready.
+   * Returns the teardown, or nothing if WebGL is not available.
+   */
+  const mount = useCallback((root: HTMLDivElement): (() => void) | undefined => {
     /* A fresh canvas per mount. The cleanup deliberately loses the context,
        and a canvas keeps one context for life, so React's development
        double-mount must not get the lost one back. */
@@ -793,6 +864,7 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
         uMap: { value: null as THREE.Texture | null },
         uScale: { value: 1 },
         uAlpha: { value: 1 },
+        uFade: { value: new THREE.Vector2(...FADE_OFF) },
       },
       transparent: true,
       depthTest: false,
@@ -1177,8 +1249,9 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
     const burstAt = (cx: number, cy: number) => {
       const p = localPoint(cx, cy);
       if (!p) return;
-      /* A click in the field is a like: it should sound like one. */
-      play('pop', { gain: 0.6 });
+      /* A click in the field is a like. It is seen, not heard: the field
+         listens on `window`, so a sound here would also play under every
+         button on the pages that carry it. */
       const zz = between(BURST_Z, rnd());
       const w = toWorld(p.sx, p.sy, zz);
       for (let k = 0; k < BURST_HEARTS; k++) {
@@ -1573,34 +1646,45 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
         const narrow = w > 0 && w < 640 ? 0.62 : 1;
         material.uniforms.uScale.value = (0.6 + 0.4 * c) * (narrow < 1 ? 0.82 : 1);
         material.uniforms.uAlpha.value = (0.4 + 0.6 * c) * narrow;
+        (material.uniforms.uFade.value as THREE.Vector2).set(...(fadeRef.current ? FADE_ON : FADE_OFF));
       };
       applyCalmRef.current();
       old?.dispose();
       ready = true;
       sync();
     };
-    const bake = (family: string): boolean => {
+    const bake = (family: string, into?: HTMLCanvasElement): HTMLCanvasElement | null => {
       let atlas: HTMLCanvasElement | null = null;
       try {
-        atlas = bakeAtlas(family);
+        atlas = bakeAtlas(family, into);
       } catch (err) {
         warn('could not bake the atlas', err);
         atlas = null;
       }
-      if (cancelled || !atlas) return false;
-      adopt(atlas);
-      return true;
+      if (cancelled || !atlas) return null;
+      /* Redrawn in place: the texture already wraps this canvas and only
+         needs uploading again. */
+      if (into && texture?.image === into) texture.needsUpdate = true;
+      else adopt(atlas);
+      return atlas;
     };
+    let cancelRebake: (() => void) | null = null;
     const prepare = async () => {
       const family = monoFamily();
       const font = `700 ${TEXT_PX}px ${family}`;
       const had = fontLoaded(font);
       /* The first bake waits for nothing: the counters set in whatever mono
          face is in, and the canvas fades in on this frame. */
-      if (!bake(family) || had) return;
+      const atlas = bake(family);
+      if (!atlas || had) return;
       await whenFontReady(font);
       if (cancelled || !fontLoaded(font)) return;
-      bake(family);
+      /* The face is in. Re-set the counters when the main thread is free —
+         a bake is a few hundred milliseconds of canvas shadows and readbacks,
+         and the field is already showing. */
+      cancelRebake = whenIdle(() => {
+        if (!cancelled) bake(family, atlas);
+      }, FONT_WAIT_MS);
     };
 
     /* Subscribing is what installs the pointer (and gyro) listeners; the
@@ -1643,6 +1727,7 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
 
     return () => {
       cancelled = true;
+      cancelRebake?.();
       if (raf) cancelAnimationFrame(raf);
       unsubscribe();
       ro?.disconnect();
@@ -1664,6 +1749,21 @@ export default function HeroField({ className, calm = 1 }: { className?: string;
       canvas.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    /* Deferred, with a deadline so a busy page still gets its field within
+       a second. Cancelling before it ran mounts nothing to tear down. */
+    let teardown: (() => void) | undefined;
+    const cancel = whenIdle(() => {
+      teardown = mount(root);
+    }, 800);
+    return () => {
+      cancel();
+      teardown?.();
+    };
+  }, [mount]);
 
   return (
     <div

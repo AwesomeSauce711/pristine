@@ -39,10 +39,13 @@ import { subscribeMotion } from '@/lib/stage-motion';
  *
  * WHAT IT COSTS
  * ~1,100 drawImage calls of a 32px sprite and one full-screen blit, at a
- * device-pixel ratio capped at 1.5 and a total of 2.4 million pixels. That is a
+ * device-pixel ratio capped at 2 and a total of 17 million pixels. That is a
  * couple of milliseconds a frame on a laptop and it stops entirely when the tab
- * is hidden. Under reduced motion it draws one frame and stops: the galaxy
- * stays, nothing in it moves, and the scroll does not parallax.
+ * is hidden. While nothing but the drift and the twinkle is moving — no
+ * scroll, no pointer lean settling — it draws every other frame: a full
+ * viewport at 2x is the largest fill on the page, and a slow sine at 30 Hz is
+ * the same slow sine. Under reduced motion it draws one frame and stops: the
+ * galaxy stays, nothing in it moves, and the scroll does not parallax.
  *
  * Colours are deliberately biased to the blue-white of a real sky, with rare
  * warm stars, so the field reads as the reference — a galaxy — and not as
@@ -267,18 +270,22 @@ export default function Starfield({ density = 1, className }: Props) {
       const camY = (scroll * dpr * SCROLL_PARALLAX) / f + cam.y;
 
       ctx.globalAlpha = 1;
-      ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, W, H);
 
       /* The nebula: 16% oversize so it can drift without showing an edge.
        * Its scroll response is soft-capped (tanh) at a few percent of the
        * height — the furthest layer moves least — and it leans away from the
-       * pointer opposite to the stars, which is what makes the depth read. */
+       * pointer opposite to the stars, which is what makes the depth read.
+       * The painting is opaque and clamped to always cover the canvas, so it
+       * is also the background: the canvas has no alpha, and a separate
+       * full-canvas fill of the same black underneath it was a second
+       * full-viewport paint per frame for nothing. */
       const nw = W * 1.16;
       const nh = H * 1.16;
-      const nx = -W * 0.08 + Math.sin(time * 0.05) * W * 0.015 - camX * W * 0.4;
-      const ny =
-        -H * 0.08 - H * 0.06 * Math.tanh(scroll / 1800) + Math.cos(time * 0.04) * H * 0.012 - cam.y * H * 0.4;
+      const nx = Math.max(W - nw, Math.min(0, -W * 0.08 + Math.sin(time * 0.05) * W * 0.015 - camX * W * 0.4));
+      const ny = Math.max(
+        H - nh,
+        Math.min(0, -H * 0.08 - H * 0.06 * Math.tanh(scroll / 1800) + Math.cos(time * 0.04) * H * 0.012 - cam.y * H * 0.4),
+      );
       ctx.drawImage(nebula, nx, ny, nw, nh);
 
       for (let i = 0; i < count; i++) {
@@ -314,9 +321,31 @@ export default function Starfield({ density = 1, className }: Props) {
       ctx.globalAlpha = 1;
     };
 
+    /* Idle throttle. With no scroll and the pointer lean settled, the only
+     * motion is the slow drift and the twinkle, and a frame that repaints
+     * the whole viewport at up to 2x for that is the page's largest steady
+     * fill. So while nothing else moves the loop skips every other tick;
+     * `dt` comes from the clock, so the drift and the twinkle integrate the
+     * same either way. Any movement keeps full rate for a beat afterwards,
+     * so a scroll's momentum and the lean's ease-out are never stepped. */
+    let lastScroll = -1;
+    let lastDraw = 0;
+    let busyUntil = 0;
+    /* A little under a 30 Hz interval, so timer jitter at 60 Hz lands on
+     * every second frame and never slips to every third. */
+    const IDLE_FRAME_MS = 1000 / 30 - 2;
+
     const frame = (now: number) => {
       raf = 0;
       if (hidden || still) return;
+      const scrollY = window.scrollY;
+      const moving =
+        scrollY !== lastScroll || Math.abs(cam.tx - cam.x) + Math.abs(cam.ty - cam.y) > 1e-4;
+      if (moving) busyUntil = now + 250;
+      if (now >= busyUntil && now - lastDraw < IDLE_FRAME_MS) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       /* Capped so a stall is a slow frame, not a leap. */
       const dt = last ? Math.min((now - last) / 1000, 0.05) : 0;
       last = now;
@@ -325,6 +354,8 @@ export default function Starfield({ density = 1, className }: Props) {
       cam.x += (cam.tx - cam.x) * k;
       cam.y += (cam.ty - cam.y) * k;
       render(dt);
+      lastDraw = now;
+      lastScroll = scrollY;
       raf = requestAnimationFrame(frame);
     };
 

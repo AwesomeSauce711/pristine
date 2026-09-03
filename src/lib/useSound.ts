@@ -22,7 +22,7 @@ import { isEnabled, setEnabled, subscribe } from '@/lib/sound';
  * and a hook needs no directive — the component that calls it carries one.
  */
 
-export { play, soundProps, soundAttrs, arm } from '@/lib/sound';
+export { play, soundProps, arm } from '@/lib/sound';
 export type { SoundName, PlayOptions } from '@/lib/sound';
 
 const serverSnapshot = () => true;

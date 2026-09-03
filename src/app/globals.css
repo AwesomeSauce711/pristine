@@ -1624,6 +1624,17 @@ body {
   .tier-orb, .tier-sweep, .tier-year.plate-face::before { animation: none; }
   .tier-spark { display: none; }
 }
+/* Paused, not stopped, while the pricing section is out of view (SceneSection
+ * sets `is-off`): these loops otherwise keep a dozen will-change layers
+ * animating for nobody. Only the infinite ones; an entrance keyed to `is-in`
+ * must still have played by the time the reader scrolls back. */
+.scene.is-off .tier-orb,
+.scene.is-off .tier-sweep,
+.scene.is-off .tier-spark,
+.scene.is-off .tier-aura,
+.scene.is-off .tier-year.plate-face::before {
+  animation-play-state: paused;
+}
 
 /*
  * The morph from the drop zone into the phone (DropMorph.tsx): a slab of the

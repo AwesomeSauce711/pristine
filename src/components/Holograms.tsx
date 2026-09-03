@@ -4,7 +4,6 @@ import { useEffect, useRef, type CSSProperties } from 'react';
 import {
   compact, engagementAt, ENGAGEMENT_KEYS, CRUSHED_ENGAGEMENT, PRISTINE_ENGAGEMENT, type Engagement,
 } from '@/lib/engagement';
-import { play } from '@/lib/sound';
 
 /*
  * The four engagement figures, floating out of the phone.
@@ -126,12 +125,13 @@ export default function Holograms({ t, className, pristine }: Props) {
   const sparkRefs = useRef<(HTMLSpanElement | null)[][]>([]);
   const armed = useRef(tt <= POP_AT);
 
-  /* The pop and the burst, straight to the elements: nothing here is state. */
+  /* The pop and the burst, straight to the elements: nothing here is state.
+   * Visual only: the split is a continuous control, and a sound on every
+   * crossing rang dozens of times a session. */
   useEffect(() => {
     if (tt < REARM_BELOW) armed.current = true;
     if (!armed.current || tt <= POP_AT) return;
     armed.current = false;
-    play('pop');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     iconRefs.current.forEach((el, i) => {

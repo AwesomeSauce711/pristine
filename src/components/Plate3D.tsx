@@ -8,7 +8,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { play } from '@/lib/sound';
 import { stillQuery } from '@/lib/scene-tier';
 import { subscribeMotion, type Motion } from '@/lib/stage-motion';
 
@@ -374,7 +373,6 @@ export default function Plate3D({
   const onPointerEnter = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = entry.current;
     if (!p || !allowed(e)) return;
-    play('hover');
     if (p.glare) p.glare.classList.add('is-on');
     if (still?.matches) return;
     p.hover = true;

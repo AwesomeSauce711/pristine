@@ -1,6 +1,6 @@
-import { renewSession } from '@/lib/auth';
+import { SessionUnavailable, renewSession } from '@/lib/auth';
 import { devUnlockAvailable } from '@/lib/dev-access';
-import { resolveAccess } from '@/lib/entitlement';
+import { resolveAccess, type Access } from '@/lib/entitlement';
 import { clientIp, limit, tooMany } from '@/lib/ratelimit';
 import { REFILL_AMOUNT_CENTS, refillPriceId } from '@/lib/billing/stripe';
 
@@ -17,7 +17,23 @@ import { REFILL_AMOUNT_CENTS, refillPriceId } from '@/lib/billing/stripe';
 export async function GET(req: Request) {
   const rate = await limit(`me:ip:${clientIp(req)}`, 120, 60);
   if (!rate.ok) return tooMany(rate);
-  const access = await resolveAccess();
+  /*
+   * A session that could not be looked up is not a verdict. Answering
+   * {signedIn:false} here signed a subscriber out on every surface for the
+   * length of a database blip; a 503 tells the clients to keep what they
+   * already know and ask again.
+   */
+  let access: Access;
+  try {
+    access = await resolveAccess();
+  } catch (e) {
+    if (!(e instanceof SessionUnavailable)) throw e;
+    console.error('[me] session lookup failed', e.cause);
+    return Response.json(
+      { code: 'unavailable', message: 'Please try again in a moment.' },
+      { status: 503, headers: { 'retry-after': '2', 'cache-control': 'no-store' } },
+    );
+  }
   if (access.user) {
     /* Never let a renewal hiccup break the page the session is for. */
     try { await renewSession(); } catch (e) { console.error('[me] session renewal failed', e); }

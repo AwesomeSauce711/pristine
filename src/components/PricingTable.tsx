@@ -38,7 +38,14 @@ import { useMe } from '@/lib/use-me';
  */
 const SINGLE_CENTS = 99;
 
-export default function PricingTable() {
+/*
+ * `intro` is the heading and pitch a page puts above the three cards. It is
+ * rendered here rather than by the page because only this component knows
+ * whether the reader is a subscriber, in which case the cards are replaced by
+ * their own plan and a first-visit pitch ("needs no account") above it would
+ * be talking to somebody else.
+ */
+export default function PricingTable({ intro }: { intro?: React.ReactNode } = {}) {
   const [busy, setBusy] = useState<PlanId | 'single' | null>(null);
   const [error, setError] = useState('');
   const [done, setDone] = useState<PlanId | null>(null);
@@ -167,6 +174,13 @@ export default function PricingTable() {
     return (
       <>
         <div className="mx-auto max-w-3xl">
+          <div className="mb-10 text-center">
+            <h2 className="title-3d text-[clamp(1.6rem,3.2vw,2.2rem)] leading-[1.05]">Your plan</h2>
+            <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-muted">
+              Upgrade any time; what is left of your current period is credited. Cancel in two
+              clicks from Account → Billing.
+            </p>
+          </div>
           <div className="plate plate-face plate-glow glow-iri relative rounded-panel p-6 md:p-8">
             <span className="badge-iri absolute -top-2.5 left-6 rounded-full px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] md:text-[10px]">
               Your plan
@@ -220,7 +234,7 @@ export default function PricingTable() {
                         >
                           {busy === id ? 'Changing your plan…' : done === id ? 'Done' : `Switch to ${p.name}`}
                         </button>
-                        <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim">
+                        <p className="mt-3 text-center text-[12.5px] leading-relaxed text-muted">
                           {money(p.amount)} today, then {money(p.amount)}/{p.interval}. What is left of your {current.name} period
                           is credited; a free trial ends now. Cancel any time.
                         </p>
@@ -244,6 +258,7 @@ export default function PricingTable() {
 
   return (
     <>
+      {intro}
       {/*
         * ONE PER ROW ON A PHONE, three across from md.
         *
@@ -393,8 +408,9 @@ export default function PricingTable() {
                 {/* Shown at EVERY width now, not just desktop. What renews, for how
                     much, has to sit beside the control that starts it — that is the
                     ROSCA requirement and it was previously hidden on the phones most
-                    of these customers are using. */}
-                <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim md:min-h-[2.6rem]">
+                    of these customers are using. Muted, not dim: the disclosure has
+                    to be conspicuous, and it was the faintest line on the card. */}
+                <p className="mt-3 text-center text-[12.5px] leading-relaxed text-muted md:min-h-[2.8rem]">
                   {p.trialDays > 0
                     ? <>Then {money(p.amount)}/{p.interval}. Cancel any time.</>
                     : <>Billed {money(p.amount)} weekly. No trial on this plan. Cancel any time.</>}

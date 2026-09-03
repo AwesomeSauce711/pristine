@@ -1,7 +1,6 @@
 'use client';
 
 import { useLayoutEffect, useRef, type RefObject } from 'react';
-import { play } from '@/lib/sound';
 
 /*
  * The drop zone becomes the phone.
@@ -45,10 +44,6 @@ interface Props {
   dropRef: RefObject<HTMLElement | null>;
   /** The wrapper around the stage once it exists; the phone body inside it is the target. */
   stageRef: RefObject<HTMLElement | null>;
-  /** The reader's video, once it has a URL: it plays on the slab in flight,
-   *  so the picture is there from the moment the zone lifts off and not only
-   *  once the phone has landed. */
-  videoSrc?: string | null;
 }
 
 /* The flight, and the settle at the end of it during which the slab fades. */
@@ -134,9 +129,11 @@ export default function DropMorph({ stage, dropRef, stageRef, skip = false }: Pr
      */
     document.body.appendChild(ghost);
 
-    /* The real stage waits, unseen, until the slab has all but landed. */
+    /* The real stage waits, unseen, until the slab has all but landed. The
+     * flight is silent: the file landing has already sounded (`drop`) and
+     * the preview arriving is about to (`reveal`); a whoosh between them
+     * was a third sound on one moment. */
     wrap.style.opacity = '0';
-    play('whoosh', { gain: 0.6 });
 
     const fly = ghost.animate(
       [

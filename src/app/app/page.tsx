@@ -21,7 +21,7 @@ import Link from 'next/link';
 const HeroField = dynamic(() => import('@/components/three/HeroField'), { ssr: false });
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { assemble, scanFile, type ScanResult } from '@/lib/mp4/scan';
-import { play, soundProps } from '@/lib/sound';
+import { play } from '@/lib/sound';
 import { clearStash, peekStashedFile, rehydrateFile, stashFile } from '@/lib/stash';
 
 /*
@@ -89,6 +89,8 @@ interface Receipt {
   multiplier: number;
   clonedTrack: boolean;
   neutralisedEdts: boolean;
+  /* The server recognised the file from a paid download and charged nothing. */
+  repeat: boolean;
 }
 
 /* Illustrative engagement, labelled as such wherever it is shown. */
@@ -126,8 +128,23 @@ export default function AppPage() {
   const [busy, setBusy] = useState(false);
   const [paywall, setPaywall] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  /*
+   * A line under the Download button: a download that failed after the
+   * preview was up, or a payment whose allowance is still being added.
+   * Kept apart from `error`, which replaces the preview with the drop zone.
+   * Once the credit is reserved the same file is free to fetch again, so the
+   * reader should be one press from it, not back at the start being told
+   * only to "try again".
+   */
+  const [downloadNote, setDownloadNote] = useState<{ text: string; error: boolean } | null>(null);
   const [autoDownload, setAutoDownload] = useState(false);
-  const [resumeNote, setResumeNote] = useState(false);
+  /*
+   * The line shown when the stash could not be brought back: 'active' when
+   * the account can download (straight back from Stripe, or a subscriber on
+   * a new device), 'signed-in' when it cannot yet, so nobody is promised they
+   * will not be asked to pay when the next press shows the plans.
+   */
+  const [resumeNote, setResumeNote] = useState<'active' | 'signed-in' | null>(null);
   /*
    * Known before the user presses Download, so the paywall can appear instantly
    * instead of after a round trip. Display only — /api/patch re-resolves access
@@ -135,7 +152,8 @@ export default function AppPage() {
    * the page looks like and nothing else.
    */
   const [entitled, setEntitled] = useState(false);
-  /* null until /api/me has answered once; the download button waits on it. */
+  /* null until /api/me has answered once. Download reads it to choose
+   * between sign-in and the plans, and asks again when it is stale. */
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   /* A restored file arrives with no drop, so the drop-to-phone morph is
    * skipped for it: nothing to fly from, and the morph plays a second copy
@@ -154,8 +172,19 @@ export default function AppPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [quotaHit]);
   const [dailyCap, setDailyCap] = useState<number | null>(null);
+  const [dailyRemaining, setDailyRemaining] = useState<number | null>(null);
   const [resetsAt, setResetsAt] = useState<string | null>(null);
+  /* When the period's allowance frees: the clock the period-cap dialog shows. */
+  const [accessUntil, setAccessUntil] = useState<string | null>(null);
   const router = useRouter();
+
+  /* The plans are a dialog too: Escape closes them like "Not yet" does. */
+  useEffect(() => {
+    if (!paywall) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPaywall(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paywall]);
   /* Which of PATCH_STEPS is showing while the download is being prepared. */
   const [patchStep, setPatchStep] = useState(0);
   /*
@@ -170,14 +199,11 @@ export default function AppPage() {
    * after a scan, so there is no server figure for it to disagree with. */
   const pristine = useMemo(() => (scan ? randomPristine() : PRISTINE_ENGAGEMENT), [scan]);
 
-  /* Step through the labels while busy; a tick marks each one. */
+  /* Step through the labels while busy. */
   useEffect(() => {
     if (!busy) return;
     const id = window.setInterval(() => {
-      setPatchStep((s) => {
-        if (s < PATCH_STEPS.length - 1) play('tick');
-        return Math.min(PATCH_STEPS.length - 1, s + 1);
-      });
+      setPatchStep((s) => Math.min(PATCH_STEPS.length - 1, s + 1));
     }, PATCH_MIN_MS / PATCH_STEPS.length);
     return () => window.clearInterval(id);
   }, [busy]);
@@ -189,26 +215,44 @@ export default function AppPage() {
   const [pos, setPos] = useState(50);
   const onPos = useCallback((p: number) => setPos(p), []);
 
-  const refreshAccess = useCallback(async (): Promise<{ signedIn: boolean; entitled: boolean }> => {
+  /*
+   * Null when /api/me could not be asked. It used to hand back the previous
+   * answer instead, which made a failure look like a verdict: the button
+   * then showed a subscriber the plans on the strength of nothing. Callers
+   * that cannot get an answer leave the decision to /api/patch, which
+   * resolves access itself on every call.
+   */
+  const refreshAccess = useCallback(async (): Promise<{ signedIn: boolean; entitled: boolean; allowance: boolean } | null> => {
     try {
       const res = await fetch('/api/me', { cache: 'no-store' });
+      /* A 429 from the route's own limiter, or a 503 while the session
+       * cannot be looked up, is not an answer. Parsed as one, its missing
+       * fields read as signed out and Download sent a subscriber to sign in. */
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       /* `hasPlan`, not `entitled`: a subscriber who has used today's allowance
        * still has a plan, and the server answers a patch with 429 and the
        * refill offer -- not with the plans. */
-      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.entitled || data.hasPlan) };
+      const next = {
+        signedIn: Boolean(data.signedIn),
+        entitled: Boolean(data.entitled || data.hasPlan),
+        /* Allowance to spend right now, plan or no plan. What the return
+         * from a payment waits for: a subscriber at the cap has a plan
+         * before the refill row lands, and nothing to spend until it does. */
+        allowance: Boolean(data.entitled),
+      };
       setSignedIn(next.signedIn);
       setEntitled(next.entitled);
       setRefill(data.refill ?? null);
       setDailyCap(typeof data.dailyCap === 'number' ? data.dailyCap : null);
+      setDailyRemaining(typeof data.dailyRemaining === 'number' ? data.dailyRemaining : null);
       setResetsAt(typeof data.resetsAt === 'string' ? data.resetsAt : null);
+      setAccessUntil(typeof data.accessUntil === 'string' ? data.accessUntil : null);
       return next;
     } catch {
-      /* leave them as they were; the server decides anyway */
-      return { signedIn: signedIn ?? false, entitled };
+      /* leave the page as it was; the server decides anyway */
+      return null;
     }
-    // Reads the latest state only for the failure fallback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { void refreshAccess(); }, [refreshAccess]);
@@ -266,16 +310,33 @@ export default function AppPage() {
     const paid = params.get('paid') === '1' && paidCookie;
     if (paidCookie) document.cookie = '__Host-pristine_paid=; Max-Age=0; Secure; Path=/; SameSite=Lax';
 
-    // Drop the flags immediately so a refresh does not try to resume twice.
-    window.history.replaceState(null, '', '/app');
-
+    /*
+     * The flags stay in the URL until the restore is over. Dropping them at
+     * once meant a reload during the read, the scan or the webhook wait
+     * landed on a bare /app with the file still sitting in the stash and
+     * nothing to bring it back. It is the cookie, consumed above, that stops
+     * a second pass from downloading twice: on a repeat the file and the
+     * preview come back and the page waits for a Download press.
+     */
     let cancelled = false;
+    const settle = () => { if (!cancelled) window.history.replaceState(null, '', '/app'); };
     (async () => {
       /* Peek, restore, then clear: the stash is the only copy, and a restore
        * interrupted by a re-mount must be able to run again. */
       const stashed = await peekStashedFile();
       if (cancelled) return;
-      if (!stashed) { void clearStash(); setResumeNote(true); void refreshAccess(); return; }
+      if (!stashed) {
+        void clearStash();
+        /* What the note may promise depends on whether the next Download
+         * press will succeed: it will straight back from Stripe, and for a
+         * subscriber signing in on a new device; not for a stranger who
+         * signed in on the way to the plans. */
+        const access = await refreshAccess();
+        if (cancelled) return;
+        setResumeNote(paid || access?.entitled ? 'active' : 'signed-in');
+        settle();
+        return;
+      }
       /* The copy STAYS until a download succeeds: from here the reader may
        * still go to the plans and to Stripe, and the copy must survive that
        * trip too. Clearing it here and re-writing it later was where it was
@@ -287,12 +348,23 @@ export default function AppPage() {
       if (cancelled) return;
 
       let access = await refreshAccess();
-      if (!paid) return;
-      for (let i = 0; i < 12 && !cancelled && !access.entitled; i++) {
+      if (!paid) { settle(); return; }
+      /*
+       * Wait for the ALLOWANCE, not the plan. The webhook that records a
+       * refill lands alongside Stripe's redirect, and a subscriber at the
+       * day's cap already had a plan, so waiting on that fired the download
+       * before the row existed -- and the first thing a paying customer saw
+       * was the allowance dialog again. Thirty seconds covers a slow
+       * webhook; past that, say so and leave the button to do it.
+       */
+      for (let i = 0; i < 30 && !cancelled && !access?.allowance; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         access = await refreshAccess();
       }
-      if (!cancelled && access.entitled) setAutoDownload(true);
+      if (cancelled) return;
+      settle();
+      if (access?.allowance) setAutoDownload(true);
+      else setDownloadNote({ error: false, text: 'Payment received. Your allowance is being added; press Download in a moment.' });
     })();
     return () => { cancelled = true; };
     // `take` is stable for the life of the component.
@@ -344,6 +416,7 @@ export default function AppPage() {
     setError('');
     setScan(null);
     setReceipt(null);
+    setDownloadNote(null);
     setUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
 
     try {
@@ -383,14 +456,16 @@ export default function AppPage() {
       const res = await fetch('/api/billing/refill', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.url) {
-        setError(data.message ?? 'The refill could not be started. Please try again.');
-        setStage('error');
+        /* The preview stays and the dialog closes, so the line under the
+         * button is in view rather than behind the backdrop. */
+        setQuotaHit(null);
+        setDownloadNote({ error: true, text: data.message ?? 'The refill could not be started. Please try again.' });
         return;
       }
       window.location.href = data.url;
     } catch {
-      setError('The refill could not be started. Please check your connection.');
-      setStage('error');
+      setQuotaHit(null);
+      setDownloadNote({ error: true, text: 'The refill could not be started. Please check your connection.' });
     } finally {
       setRefillBusy(false);
     }
@@ -407,22 +482,35 @@ export default function AppPage() {
      * refuse to do is the wrong way round.
      */
     if (!entitled) {
-      await stashBeforeLeaving(file);
       /*
-       * Not signed in: sign in FIRST, then choose a plan. The file is stashed
-       * and the return address restores it and presses Download again, so the
-       * next thing they see after the code is the plans -- not the drop zone.
+       * The page's copy of access can be stale: paid in another tab, a
+       * webhook slower than the poll, or /api/me never having answered. One
+       * more question before the plans are shown costs a round trip only for
+       * readers who would otherwise have seen them; a confirmed no is still
+       * instant. With no answer at all the server decides: /api/patch
+       * resolves access itself and its 401 and 402 land below.
        */
-      if (signedIn === false) {
-        router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
+      const fresh = await refreshAccess();
+      if (fresh && !fresh.entitled) {
+        await stashBeforeLeaving(file);
+        /*
+         * Not signed in: sign in FIRST, then choose a plan. The file is
+         * stashed and the return address restores it and the preview; the
+         * plans, or the download, come from their own next press of
+         * Download, once they have seen their comparison again.
+         */
+        if (!fresh.signedIn) {
+          router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
+          return;
+        }
+        setPaywall(true);
         return;
       }
-      setPaywall(true);
-      return;
     }
 
     setBusy(true);
     setPatchStep(0);
+    setDownloadNote(null);
     const startedAt = performance.now();
     try {
       const res = await fetch('/api/patch', {
@@ -461,9 +549,10 @@ export default function AppPage() {
         }
       }
       if (!res.ok) {
+        /* The preview stays: the server's message already says whether
+         * this cost a patch (it did not), and the file is still here. */
         const body = await res.json().catch(() => ({}));
-        setError(body.message ?? 'Something went wrong preparing this file.');
-        setStage('error');
+        setDownloadNote({ error: true, text: body.message ?? 'Something went wrong preparing this file. Please try again.' });
         return;
       }
 
@@ -474,8 +563,7 @@ export default function AppPage() {
       const lens = [meta.moovLen, meta.mdatHeaderLen, meta.fillerLen, meta.fillerHeadLen ?? 0];
       if (!lens.every((n) => Number.isInteger(n) && n >= 0)
         || meta.moovLen + meta.mdatHeaderLen + (meta.fillerHeadLen ?? 0) !== buf.length) {
-        setError('Something went wrong preparing this file. Please try again.');
-        setStage('error');
+        setDownloadNote({ error: true, text: 'Something went wrong preparing this file. Press Download again — the same file never costs a second download.' });
         return;
       }
       const moov = buf.subarray(0, meta.moovLen);
@@ -511,10 +599,15 @@ export default function AppPage() {
         multiplier: meta.multiplier,
         clonedTrack: !!meta.clonedTrack,
         neutralisedEdts: !!meta.neutralisedEdts,
+        repeat: !!meta.repeat,
       });
+      /* The remaining allowance on the page, without a reload. */
+      void refreshAccess();
     } catch {
-      setError('The download could not be completed. Please try again.');
-      setStage('error');
+      /* Past the reservation, the credit is spent and the same file is
+       * free from here; before it, nothing was spent. Either way the retry
+       * costs nothing new, and the preview stays for it. */
+      setDownloadNote({ error: true, text: 'The download could not be completed. Press Download again — the same file never costs a second download.' });
     } finally {
       setBusy(false);
     }
@@ -540,27 +633,69 @@ export default function AppPage() {
         <main id="main" className="mx-auto max-w-6xl px-6 pt-28 pb-20 md:pt-32 md:pb-24">
           {(stage === 'idle' || stage === 'scanning' || stage === 'error') && (
             <div className="mx-auto max-w-2xl">
-              <h1 className="title-3d text-[clamp(2.1rem,4.6vw,3.2rem)] leading-[1.02]">
-                See what TikTok will do to your video
-              </h1>
-              <p className="mt-5 text-[15px] leading-relaxed text-muted">
-                Drop your export in. It is read on your device and never uploaded — no account,
-                no card, nothing to sign up for.
-              </p>
+              {/*
+                * Two greetings. The stranger's pitch says no account and no
+                * card, which is the wrong first line for a customer who comes
+                * back every day with one of each; they get their allowance
+                * instead. `entitled` is false until /api/me answers, so a
+                * subscriber sees the pitch for a moment before it swaps; the
+                * swap is accepted over holding the heading back from everyone.
+                * The counter needs a real cap: a single-download buyer is
+                * entitled with a cap of 0, and "1 of 0" is nonsense.
+                */}
+              {entitled ? (
+                <>
+                  <h1 className="title-3d text-[clamp(2.1rem,4.6vw,3.2rem)] leading-[1.02]">
+                    Drop in today&rsquo;s video
+                  </h1>
+                  <p className="mt-5 text-[15px] leading-relaxed text-muted">
+                    Read on your device and never uploaded, same as always.
+                    {dailyCap != null && dailyCap > 0 && dailyRemaining != null && (
+                      dailyRemaining > 0 ? (
+                        <> <span className="tabular text-text">{dailyRemaining} of {dailyCap}</span> left today.</>
+                      ) : (
+                        <> Today&rsquo;s allowance is used up; it resets <Countdown until={resetsAt} className="text-text" />.</>
+                      )
+                    )}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="title-3d text-[clamp(2.1rem,4.6vw,3.2rem)] leading-[1.02]">
+                    See what TikTok will do to your video
+                  </h1>
+                  <p className="mt-5 text-[15px] leading-relaxed text-muted">
+                    Drop your export in. It is read on your device and never uploaded — no account,
+                    no card, nothing to sign up for.
+                  </p>
+                </>
+              )}
 
               {/*
                 * The fallback when the file could not be brought back across the
-                * trip to Stripe — no storage quota, a private window, or a return
-                * in a different browser. Without this the user lands on an empty
-                * dropzone after paying and has no idea whether it worked.
+                * trip to Stripe or to sign-in — no storage quota, a private
+                * window, or a return in a different browser. Without this the
+                * user lands on an empty dropzone after paying and has no idea
+                * whether it worked. The green version only when the next press
+                * will download; the plain one for a sign-in with no plan yet.
                 */}
-              {resumeNote && (
+              {resumeNote === 'active' && (
                 <div className="mt-6 rounded-xl border border-good/30 bg-good/5 px-5 py-4">
                   <p className="text-[14px] font-medium text-good">Your plan is active.</p>
                   <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
                     Drop your video back in and press Download — you will not be asked to pay
-                    again. We could not keep a copy while you were on the payment page, which is
-                    deliberate: it never left your device.
+                    again. We could not keep a copy while you were away, which is deliberate: it
+                    never left your device.
+                  </p>
+                </div>
+              )}
+              {resumeNote === 'signed-in' && (
+                <div className="mt-6 rounded-xl border border-line bg-white/[0.02] px-5 py-4">
+                  <p className="text-[14px] font-medium text-text">You are signed in.</p>
+                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+                    Drop your video back in and press Download to carry on where you left off. We
+                    could not keep a copy while you were away, which is deliberate: it never left
+                    your device.
                   </p>
                 </div>
               )}
@@ -726,7 +861,6 @@ export default function AppPage() {
                   <button
                     onClick={() => inputRef.current?.click()}
                     className="pill pill-ghost pill-sm"
-                    {...soundProps('hover')}
                   >
                     Choose another
                   </button>
@@ -829,10 +963,10 @@ export default function AppPage() {
                   </>
                 )}
 
+                {/* PreviewNote above already says the figures are illustrative. */}
                 <p className="mx-auto mt-3 max-w-xl text-center text-[11.5px] leading-relaxed text-dim">
-                  Preview only — simulated, and the engagement numbers are illustrative. The left
-                  side reproduces TikTok&rsquo;s measured 720×1280 / 30fps delivery by drawing your
-                  own video at that resolution. Not affiliated with TikTok.
+                  Preview only. The left side reproduces TikTok&rsquo;s measured 720×1280 / 30fps
+                  delivery by drawing your own video at that resolution. Not affiliated with TikTok.
                 </p>
               </section>
 
@@ -851,11 +985,19 @@ export default function AppPage() {
                       onClick={download}
                       disabled={busy}
                       className="pill pill-primary disabled:cursor-not-allowed disabled:opacity-40"
-                      {...soundProps('hover')}
                     >
-                      {busy ? 'Patching…' : receipt ? 'Download again' : 'Download'}
+                      {busy ? 'Preparing…' : receipt ? 'Download again' : 'Download'}
                     </button>
                   </div>
+
+                  {downloadNote && (
+                    <p
+                      role="status"
+                      className={`mt-4 text-[13.5px] leading-relaxed ${downloadNote.error ? 'text-bad' : 'text-muted'}`}
+                    >
+                      {downloadNote.text}
+                    </p>
+                  )}
 
                   {/*
                     * The allowance notice is a DIALOG. It used to be a panel
@@ -879,18 +1021,23 @@ export default function AppPage() {
                       onClick={(e) => { if (e.target === e.currentTarget) setQuotaHit(null); }}
                     >
                       <div className="plate plate-face plate-glow w-full max-w-[420px] rounded-panel px-6 py-6">
-                        <div className="legend">Today&rsquo;s allowance</div>
+                        {/* The period cap frees when the period does, not on
+                            the rolling 24-hour clock the daily cap keeps. */}
+                        <div className="legend">
+                          {quotaHit.code === 'period_quota' ? 'This period\u2019s allowance' : 'Today\u2019s allowance'}
+                        </div>
                         <p id="refill-title" className="mt-3 text-[15px] text-text">{quotaHit.message}</p>
                         <p className="tabular mt-1 text-[13px] text-muted">
-                          Your allowance resets <Countdown until={resetsAt} className="text-text" />.
+                          Your allowance resets{' '}
+                          <Countdown until={quotaHit.code === 'period_quota' ? accessUntil : resetsAt} className="text-text" />.
                         </p>
                         {refill ? (
                           <>
                             <p className="mt-3 text-[13.5px] leading-relaxed text-muted">
                               Need it today? Add {dailyCap ?? 'another day\u2019s'}{' '}
-                              {dailyCap === 1 ? 'more video' : 'more videos'} for the next 24 hours --{' '}
+                              {dailyCap === 1 ? 'more video' : 'more videos'} for the next 24 hours \u2014{' '}
                               <span className="tabular text-text">${(refill.amountCents / 100).toFixed(2)}</span>,
-                              one-time, as often as you like.
+                              one-off, as often as you like.
                             </p>
                             <div className="mt-5 flex flex-wrap items-center gap-3">
                               <button
@@ -898,9 +1045,8 @@ export default function AppPage() {
                                 disabled={refillBusy}
                                 className="pill pill-primary pill-sm disabled:opacity-60"
                                 autoFocus
-                                {...soundProps('hover')}
                               >
-                                {refillBusy ? 'Opening secure checkout\u2026' : `Add ${dailyCap ?? ''} for $${(refill.amountCents / 100).toFixed(2)}`}
+                                {refillBusy ? 'Opening secure checkout\u2026' : `Add ${dailyCap ?? 'more'} more for $${(refill.amountCents / 100).toFixed(2)}`}
                               </button>
                               <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim">
                                 Not now
@@ -910,7 +1056,9 @@ export default function AppPage() {
                         ) : (
                           <>
                             <p className="mt-3 text-[13.5px] leading-relaxed text-muted">
-                              Come back tomorrow, or upgrade from your account for a bigger daily allowance.
+                              Come back tomorrow, or{' '}
+                              <Link href="/pricing" className="underline transition hover:text-text">upgrade</Link>{' '}
+                              for a bigger daily allowance.
                             </p>
                             <div className="mt-5">
                               <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim" autoFocus>
@@ -948,8 +1096,14 @@ export default function AppPage() {
                     <div className="mt-6 flex items-center gap-3 border-t border-white/8 pt-5">
                       <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-good shadow-[0_0_10px_var(--color-good)]" />
                       <p className="text-[13.5px] leading-relaxed text-muted">
-                        <span className="text-good">Saved to your downloads.</span>{' '}
-                        Upload it to TikTok exactly as you normally would — nothing else to do.
+                        <span className="text-good">
+                          {receipt.repeat
+                            ? 'Same file as before, so this did not use one of your downloads.'
+                            : 'Saved to your downloads.'}
+                        </span>{' '}
+                        Upload it to TikTok exactly as you normally would — nothing else to do.{' '}
+                        {/* a.click() cannot be observed, so say what a missing file costs: nothing. */}
+                        <span className="text-dim">Did it not arrive? Download again is free for this file.</span>
                       </p>
                     </div>
                   )}
@@ -996,7 +1150,6 @@ export default function AppPage() {
                   autoFocus
                   onClick={() => setNotice(false)}
                   className="pill pill-primary mt-6"
-                  {...soundProps('hover')}
                 >
                   Got it
                 </button>
@@ -1011,15 +1164,22 @@ export default function AppPage() {
             * bottom, not a Download above a Try free. The full section with
             * its explanation remains below. */}
           {stage === 'ready' && scan && !notice && (
-            <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex justify-center px-4">
+            <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4">
+              {/* The same line as under the full section, where the reader is looking. */}
+              {downloadNote && (
+                <p
+                  className={`pointer-events-auto max-w-md rounded-full bg-[rgba(3,4,10,0.85)] px-4 py-2 text-center text-[12.5px] leading-snug ${downloadNote.error ? 'text-bad' : 'text-muted'}`}
+                >
+                  {downloadNote.text}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={download}
                 disabled={busy}
                 className="pill pill-primary pointer-events-auto shadow-[0_12px_40px_rgba(0,0,0,0.55)] disabled:opacity-40"
-                {...soundProps('hover')}
               >
-                {busy ? 'Patching…' : receipt ? 'Download again' : 'Download your Pristine file'}
+                {busy ? 'Preparing…' : receipt ? 'Download again' : 'Download your Pristine file'}
               </button>
             </div>
           )}
@@ -1027,12 +1187,29 @@ export default function AppPage() {
         </main>
       </div>
 
-      {paywall && <Paywall onClose={() => setPaywall(false)} />}
+      {paywall && <Paywall signedIn={signedIn} onClose={() => setPaywall(false)} />}
     </>
   );
 }
 
-function Paywall({ onClose }: { onClose: () => void }) {
+function Paywall({ onClose, signedIn }: { onClose: () => void; signedIn: boolean | null }) {
+  const router = useRouter();
+  /* React only applies autoFocus to form controls, so the heading is
+   * focused by hand when the dialog opens. */
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { titleRef.current?.focus(); }, []);
+  /*
+   * The plans open only for someone signed in without a plan (Download sends
+   * the signed-out to sign-in first), so "Sign in" here asked a signed-in
+   * reader to sign in again and brought them straight back to these plans.
+   * What that reader may need is the other account, the one that paid: sign
+   * this one out, and come back to the stashed file with the download intent
+   * intact.
+   */
+  const switchAccount = async () => {
+    await fetch('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
+    router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
+  };
   /*
    * The plans are HERE, not a link to /#pricing.
    *
@@ -1049,6 +1226,7 @@ function Paywall({ onClose }: { onClose: () => void }) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="paywall-title"
     >
       {/* The offer stops the click; the scenery around it closes. The plate
           glows: this is the one moment the page asks for anything. */}
@@ -1056,13 +1234,26 @@ function Paywall({ onClose }: { onClose: () => void }) {
         <Plate3D glow depth={14} tilt={2}>
           <div className="p-6 sm:p-9">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="title-3d text-[clamp(1.4rem,3.2vw,1.9rem)]">
+              {/* Focus lands on the heading, so a screen reader hears the
+                  offer before any control that starts a purchase. */}
+              <h2 ref={titleRef} id="paywall-title" tabIndex={-1} className="title-3d text-[clamp(1.4rem,3.2vw,1.9rem)] outline-none">
                 You&rsquo;ve seen the difference
               </h2>
               <p className="mt-3 text-[14px] leading-relaxed text-muted">
                 Everything up to here is free. You only pay for the file itself — and your video
                 stays right where it is while you do.
               </p>
+              {/* On a phone the three cards stack, and the way out below them
+                  is a screen and a half away; a second one sits up here. */}
+              <div className="mt-4 flex justify-center md:hidden">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="pill pill-ghost pill-sm text-dim"
+                >
+                  Not yet
+                </button>
+              </div>
             </div>
 
             <div className="mt-8">
@@ -1071,21 +1262,30 @@ function Paywall({ onClose }: { onClose: () => void }) {
 
             <div className="mt-6 flex justify-center">
               <button
+                type="button"
                 onClick={onClose}
                 className="pill pill-ghost pill-sm text-dim"
-                {...soundProps('hover')}
               >
                 Not yet
               </button>
             </div>
             {/* The paywall is where a subscriber on a new device lands; a plan
                 list with no way in reads as "pay again". */}
-            <p className="mt-4 text-center text-[13px] text-dim">
-              Already subscribed?{' '}
-              <Link href="/sign-in?next=%2Fapp" className="underline transition hover:text-text">
-                Sign in
-              </Link>
-            </p>
+            {signedIn === true ? (
+              <p className="mt-4 text-center text-[13px] text-dim">
+                Paid with a different email?{' '}
+                <button type="button" onClick={() => void switchAccount()} className="underline transition hover:text-text">
+                  Sign in with that one
+                </button>
+              </p>
+            ) : (
+              <p className="mt-4 text-center text-[13px] text-dim">
+                Already subscribed?{' '}
+                <Link href="/sign-in?next=%2Fapp" className="underline transition hover:text-text">
+                  Sign in
+                </Link>
+              </p>
+            )}
           </div>
         </Plate3D>
       </div>

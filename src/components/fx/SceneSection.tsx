@@ -60,6 +60,51 @@ const EYE_LIFT = 0.35;
 
 const cx = (...parts: (string | undefined | false)[]) => parts.filter(Boolean).join(' ');
 
+/*
+ * One scroll listener and one animation frame for every section on the
+ * page, not one of each per section (the landing mounts seven). A scroll
+ * tick measures every section first and writes every section after, so
+ * the frame forces layout once rather than once per section as reads and
+ * writes interleave. A section's `measure` returns null when it has
+ * nothing to paint — off screen, or holding still — and is then skipped.
+ */
+interface Painter<T = unknown> {
+  measure(): T | null;
+  apply(m: T): void;
+}
+const painters = new Set<Painter>();
+let sharedRaf = 0;
+
+function paintAll() {
+  sharedRaf = 0;
+  const jobs: [Painter, unknown][] = [];
+  for (const p of painters) {
+    const m = p.measure();
+    if (m !== null) jobs.push([p, m]);
+  }
+  for (const [p, m] of jobs) p.apply(m);
+}
+function scheduleAll() {
+  if (!sharedRaf && !document.hidden) sharedRaf = requestAnimationFrame(paintAll);
+}
+function listen(painter: Painter): () => void {
+  if (painters.size === 0) {
+    window.addEventListener('scroll', scheduleAll, { passive: true });
+    window.addEventListener('resize', scheduleAll);
+    document.addEventListener('visibilitychange', scheduleAll);
+  }
+  painters.add(painter);
+  return () => {
+    painters.delete(painter);
+    if (painters.size > 0) return;
+    window.removeEventListener('scroll', scheduleAll);
+    window.removeEventListener('resize', scheduleAll);
+    document.removeEventListener('visibilitychange', scheduleAll);
+    cancelAnimationFrame(sharedRaf);
+    sharedRaf = 0;
+  };
+}
+
 export default function SceneSection({ children, className, id }: Props) {
   const ref = useRef<HTMLElement>(null);
 
@@ -88,7 +133,6 @@ export default function SceneSection({ children, className, id }: Props) {
     // A moving wrapper must keep the 3D chain intact for the plates inside it.
     for (const l of layers) l.style.transformStyle = 'preserve-3d';
 
-    let raf = 0;
     let inView = false;
     let painted = false;
 
@@ -99,36 +143,49 @@ export default function SceneSection({ children, className, id }: Props) {
       el.style.perspectiveOrigin = '';
     };
 
-    const paint = () => {
-      raf = 0;
-      if (still.matches) {
-        rest();
-        return;
-      }
-      const r = el.getBoundingClientRect();
-      const vh = window.innerHeight;
-      const off = r.top + r.height / 2 - vh / 2;
-      layers.forEach((l, i) => {
-        l.style.transform = `translate3d(0, ${(off * depths[i]).toFixed(2)}px, 0)`;
-      });
-      // The eye, in the section's own coordinates.
-      const eye = vh * (0.5 - EYE_LIFT) - r.top;
-      el.style.perspectiveOrigin = `50% ${eye.toFixed(1)}px`;
-      painted = true;
+    /* The measure is the only layout read; `rest` writes, so a section that
+       has just started holding still rests on the write pass. */
+    const REST = Symbol('rest');
+    const painter: Painter<{ off: number; eye: number } | typeof REST> = {
+      measure: () => {
+        if (!inView) return null;
+        if (still.matches) return painted ? REST : null;
+        const r = el.getBoundingClientRect();
+        const vh = window.innerHeight;
+        return {
+          off: r.top + r.height / 2 - vh / 2,
+          // The eye, in the section's own coordinates.
+          eye: vh * (0.5 - EYE_LIFT) - r.top,
+        };
+      },
+      apply: (m) => {
+        if (m === REST) {
+          rest();
+          return;
+        }
+        layers.forEach((l, i) => {
+          l.style.transform = `translate3d(0, ${(m.off * depths[i]).toFixed(2)}px, 0)`;
+        });
+        el.style.perspectiveOrigin = `50% ${m.eye.toFixed(1)}px`;
+        painted = true;
+      },
     };
-    const schedule = () => {
-      if (!raf && inView && !document.hidden) raf = requestAnimationFrame(paint);
-    };
+    const unlisten = listen(painter);
 
     let io: IntersectionObserver | null = null;
     if (typeof IntersectionObserver !== 'undefined') {
       io = new IntersectionObserver(
         (entries) => {
           inView = entries.some((e) => e.isIntersecting);
+          /* `is-off` while the section is out of view: the stylesheet pauses
+             the looping decorations inside it (the pricing cards' orbs,
+             sweeps and auras keep a dozen compositor layers animating for
+             nobody otherwise). Entrances are keyed to `is-in` and untouched. */
+          el.classList.toggle('is-off', !inView);
           if (inView) {
             el.classList.add('is-in');
             for (const l of layers) l.style.willChange = 'transform';
-            schedule();
+            scheduleAll();
           } else {
             for (const l of layers) l.style.willChange = '';
           }
@@ -138,18 +195,13 @@ export default function SceneSection({ children, className, id }: Props) {
       io.observe(el);
     } else {
       inView = true;
-      schedule();
+      scheduleAll();
     }
 
-    window.addEventListener('scroll', schedule, { passive: true });
-    window.addEventListener('resize', schedule);
-    document.addEventListener('visibilitychange', schedule);
     return () => {
       io?.disconnect();
-      window.removeEventListener('scroll', schedule);
-      window.removeEventListener('resize', schedule);
-      document.removeEventListener('visibilitychange', schedule);
-      cancelAnimationFrame(raf);
+      unlisten();
+      el.classList.remove('is-off');
       rest();
       for (const l of layers) {
         l.style.willChange = '';

@@ -23,14 +23,22 @@ function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   /* Only a path on this site. A full URL here would be an open redirect: a
-   * crafted link that signs someone in and then sends them anywhere. */
+   * crafted link that signs someone in and then sends them anywhere. A
+   * backslash counts as a slash to the URL parser ("/\evil.com" resolves to
+   * https://evil.com/), and the router hard-navigates to a foreign origin, so
+   * a second slash of either kind is refused. */
   const rawNext = params.get('next') ?? '/app';
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/app';
+  const next = /^\/(?![/\\])/.test(rawNext) ? rawNext : '/app';
   /* Sent here by the Download button: the file is stashed and waiting. */
   const forDownload = next.includes('intent=download');
 
-  const [step, setStep] = useState<'email' | 'code'>('email');
-  const [email, setEmail] = useState('');
+  /* Sent here by the welcome page after a purchase landed on an existing
+   * account: a code is already on its way to `email`, so this opens at the
+   * code step rather than asking for a second one. Anyone can craft these
+   * two params; the code step keeps "Use a different email" for that. */
+  const sentTo = params.get('sent') === '1' ? (params.get('email') ?? '').trim() : '';
+  const [step, setStep] = useState<'email' | 'code'>(sentTo ? 'code' : 'email');
+  const [email, setEmail] = useState(sentTo);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');

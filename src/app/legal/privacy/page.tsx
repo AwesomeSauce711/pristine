@@ -48,7 +48,7 @@ export default function Privacy() {
 
       <h2>What we do collect</h2>
       <ul>
-        <li><strong>Your email address</strong>, so you can sign in and we can send receipts,
+        <li><strong>Your email address</strong>, so you can sign in and we can send receipts and
           service notices.</li>
         <li><strong>Sign-in and session records</strong> — hashed session tokens, IP address, and
           browser user agent — to keep your account secure and let you sign out everywhere.</li>
