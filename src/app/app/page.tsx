@@ -144,6 +144,14 @@ export default function AppPage() {
   const [quotaHit, setQuotaHit] = useState<{ code: string; message: string } | null>(null);
   const [refillBusy, setRefillBusy] = useState(false);
   const [refill, setRefill] = useState<{ amountCents: number } | null>(null);
+
+  /* The refill offer is a dialog: Escape closes it like the button does. */
+  useEffect(() => {
+    if (!quotaHit) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setQuotaHit(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [quotaHit]);
   const [dailyCap, setDailyCap] = useState<number | null>(null);
   const [resetsAt, setResetsAt] = useState<string | null>(null);
   const router = useRouter();
@@ -840,39 +848,65 @@ export default function AppPage() {
                     </button>
                   </div>
 
+                  {/*
+                    * The allowance notice is a DIALOG. It used to be a panel
+                    * under the preview, which on a phone -- and on any screen
+                    * with the preview filling it -- sat below the fold: the
+                    * download button said no and nothing visible said why, or
+                    * offered the way round it. A dialog is seen wherever the
+                    * page is scrolled to. The offer and the countdown are the
+                    * same words as before.
+                    */}
                   {quotaHit && (
-                    <div className="mt-6 rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
-                      <p className="text-[14px] text-text">{quotaHit.message}</p>
-                      <p className="tabular mt-1 text-[13px] text-muted">
-                        Your allowance resets <Countdown until={resetsAt} className="text-text" />.
-                      </p>
-                      {refill ? (
-                        <>
-                          <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
-                            Need it today? Add {dailyCap ?? 'another day\u2019s'}{' '}
-                            {dailyCap === 1 ? 'more video' : 'more videos'} for the next 24 hours --{' '}
-                            <span className="tabular text-text">${(refill.amountCents / 100).toFixed(2)}</span>,
-                            one-time, as often as you like.
-                          </p>
-                          <div className="mt-4 flex flex-wrap items-center gap-3">
-                            <button
-                              onClick={() => void buyRefill()}
-                              disabled={refillBusy}
-                              className="pill pill-primary pill-sm disabled:opacity-60"
-                              {...soundProps('hover')}
-                            >
-                              {refillBusy ? 'Opening secure checkout\u2026' : `Add ${dailyCap ?? ''} for $${(refill.amountCents / 100).toFixed(2)}`}
-                            </button>
-                            <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim">
-                              Not now
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
-                          Come back tomorrow, or upgrade from your account for a bigger daily allowance.
+                    <div
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="refill-title"
+                      className="fixed inset-0 z-[90] grid place-items-center bg-black/65 px-5 backdrop-blur-sm"
+                      onClick={(e) => { if (e.target === e.currentTarget) setQuotaHit(null); }}
+                    >
+                      <div className="plate plate-face plate-glow w-full max-w-[420px] rounded-panel px-6 py-6">
+                        <div className="legend">Today&rsquo;s allowance</div>
+                        <p id="refill-title" className="mt-3 text-[15px] text-text">{quotaHit.message}</p>
+                        <p className="tabular mt-1 text-[13px] text-muted">
+                          Your allowance resets <Countdown until={resetsAt} className="text-text" />.
                         </p>
-                      )}
+                        {refill ? (
+                          <>
+                            <p className="mt-3 text-[13.5px] leading-relaxed text-muted">
+                              Need it today? Add {dailyCap ?? 'another day\u2019s'}{' '}
+                              {dailyCap === 1 ? 'more video' : 'more videos'} for the next 24 hours --{' '}
+                              <span className="tabular text-text">${(refill.amountCents / 100).toFixed(2)}</span>,
+                              one-time, as often as you like.
+                            </p>
+                            <div className="mt-5 flex flex-wrap items-center gap-3">
+                              <button
+                                onClick={() => void buyRefill()}
+                                disabled={refillBusy}
+                                className="pill pill-primary pill-sm disabled:opacity-60"
+                                autoFocus
+                                {...soundProps('hover')}
+                              >
+                                {refillBusy ? 'Opening secure checkout\u2026' : `Add ${dailyCap ?? ''} for $${(refill.amountCents / 100).toFixed(2)}`}
+                              </button>
+                              <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim">
+                                Not now
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="mt-3 text-[13.5px] leading-relaxed text-muted">
+                              Come back tomorrow, or upgrade from your account for a bigger daily allowance.
+                            </p>
+                            <div className="mt-5">
+                              <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim" autoFocus>
+                                Close
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
 
