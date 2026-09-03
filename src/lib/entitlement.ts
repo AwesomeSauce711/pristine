@@ -120,6 +120,7 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
     .limit(1);
 
   const ent = rows[0];
+  const since = new Date(Date.now() - 86_400_000);
   if (!ent) {
     // Distinguish "never subscribed" from "was revoked", because the two need
     // very different messages: one is a sales page, the other is support.
@@ -127,57 +128,103 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
       .from(schema.entitlements)
       .where(eq(schema.entitlements.userId, user.id)).limit(1);
     if (any[0]?.state === 'revoked') return { ...DENIED('revoked'), user };
+
+    /*
+     * NO PLAN, BUT A DOWNLOAD BOUGHT OUTRIGHT. A single download is the
+     * 99-cent top-up sold to someone without a subscription: one credit,
+     * good for 24 hours from purchase. Counted here exactly like a refill
+     * on a plan -- bought in the last day, minus used in the last day -- so
+     * that the same ledger, the same refund handling and the same reset
+     * arithmetic apply. There is no plan to rank, no daily cap, no period.
+     */
+    const [[bought], [used], [firstBuy]] = await Promise.all([
+      exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+        .from(schema.patchRefills)
+        .where(and(
+          eq(schema.patchRefills.userId, user.id),
+          sql`${schema.patchRefills.revokedAt} is null`,
+          gt(schema.patchRefills.createdAt, since),
+        )),
+      exec.select({ n: count() }).from(schema.patchJobs)
+        .where(and(
+          eq(schema.patchJobs.userId, user.id),
+          eq(schema.patchJobs.countsAgainstQuota, true),
+          gt(schema.patchJobs.createdAt, since),
+        )),
+      exec.select({ at: sql<string | null>`min(${schema.patchRefills.createdAt})` })
+        .from(schema.patchRefills)
+        .where(and(
+          eq(schema.patchRefills.userId, user.id),
+          sql`${schema.patchRefills.revokedAt} is null`,
+          gt(schema.patchRefills.createdAt, since),
+        )),
+    ]);
+    const left = Number(bought?.n ?? 0) - Number(used?.n ?? 0);
+    if (left > 0) {
+      const boughtAt = firstBuy?.at ? new Date(firstBuy.at) : new Date();
+      return {
+        ok: true,
+        user,
+        state: 'none',
+        accessUntil: new Date(boughtAt.getTime() + 86_400_000),
+        tier: null,
+        dailyRemaining: left,
+        periodRemaining: left,
+        dailyCap: 0,
+        refillsToday: Number(bought?.n ?? 0),
+        resetsAt: null,
+      };
+    }
+
     if (any[0]) return { ...DENIED('expired'), user };
     return { ...DENIED('no_subscription'), user };
   }
 
-  const since = new Date(Date.now() - 86_400_000);
-  const [daily] = await exec.select({ n: count() }).from(schema.patchJobs)
-    .where(and(
-      eq(schema.patchJobs.userId, user.id),
-      eq(schema.patchJobs.countsAgainstQuota, true),
-      gt(schema.patchJobs.createdAt, since),
-    ));
-
-  const [period] = await exec.select({ n: count() }).from(schema.patchJobs)
-    .where(and(
-      eq(schema.patchJobs.userId, user.id),
-      eq(schema.patchJobs.countsAgainstQuota, true),
-      ent.periodStartedAt
-        ? gt(schema.patchJobs.createdAt, ent.periodStartedAt)
-        : sql`true`,
-    ));
+  /* The five counts do not depend on one another; one round trip, not five.
+   * This is the cost of every /api/me and every account page load. */
+  const [[daily], [period], [refillDay], [refillPeriod], [first]] = await Promise.all([
+    exec.select({ n: count() }).from(schema.patchJobs)
+      .where(and(
+        eq(schema.patchJobs.userId, user.id),
+        eq(schema.patchJobs.countsAgainstQuota, true),
+        gt(schema.patchJobs.createdAt, since),
+      )),
+    exec.select({ n: count() }).from(schema.patchJobs)
+      .where(and(
+        eq(schema.patchJobs.userId, user.id),
+        eq(schema.patchJobs.countsAgainstQuota, true),
+        ent.periodStartedAt
+          ? gt(schema.patchJobs.createdAt, ent.periodStartedAt)
+          : sql`true`,
+      )),
+    exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+      .from(schema.patchRefills)
+      .where(and(
+        eq(schema.patchRefills.userId, user.id),
+        sql`${schema.patchRefills.revokedAt} is null`,
+        gt(schema.patchRefills.createdAt, since),
+      )),
+    exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+      .from(schema.patchRefills)
+      .where(and(
+        eq(schema.patchRefills.userId, user.id),
+        sql`${schema.patchRefills.revokedAt} is null`,
+        ent.periodStartedAt ? gt(schema.patchRefills.createdAt, ent.periodStartedAt) : sql`true`,
+      )),
+    exec.select({ at: sql<string | null>`min(${schema.patchJobs.createdAt})` })
+      .from(schema.patchJobs)
+      .where(and(
+        eq(schema.patchJobs.userId, user.id),
+        eq(schema.patchJobs.countsAgainstQuota, true),
+        gt(schema.patchJobs.createdAt, since),
+      )),
+  ]);
 
   /*
    * Refills. Each one adds the plan's daily cap for 24 hours from purchase,
    * and the same again to the period, so a customer who has bought one is
    * never stopped by the period cap for having used the day's.
    */
-  const [refillDay] = await exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
-    .from(schema.patchRefills)
-    .where(and(
-      eq(schema.patchRefills.userId, user.id),
-      sql`${schema.patchRefills.revokedAt} is null`,
-      gt(schema.patchRefills.createdAt, since),
-    ));
-  const [refillPeriod] = await exec.select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
-    .from(schema.patchRefills)
-    .where(and(
-      eq(schema.patchRefills.userId, user.id),
-      sql`${schema.patchRefills.revokedAt} is null`,
-      ent.periodStartedAt ? gt(schema.patchRefills.createdAt, ent.periodStartedAt) : sql`true`,
-    ));
-
-  /* The window is rolling: the day's allowance comes back 24 hours after the
-   * earliest patch still inside it. That instant is the reset the UI counts
-   * down to; with nothing used there is nothing to reset. */
-  const [first] = await exec.select({ at: sql<string | null>`min(${schema.patchJobs.createdAt})` })
-    .from(schema.patchJobs)
-    .where(and(
-      eq(schema.patchJobs.userId, user.id),
-      eq(schema.patchJobs.countsAgainstQuota, true),
-      gt(schema.patchJobs.createdAt, since),
-    ));
   const resetsAt = first?.at ? new Date(new Date(first.at).getTime() + 86_400_000) : null;
 
   const dailyRemaining = remainingWithRefills(ent.dailyPatchCap, Number(daily?.n ?? 0), Number(refillDay?.n ?? 0));

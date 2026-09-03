@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { denialMessage, denialStatus, resolveAccess, type Denial } from '@/lib/entitlement';
 import { clientIp, limit, requestIp, tooMany } from '@/lib/ratelimit';
@@ -74,7 +74,15 @@ export async function POST(req: Request) {
   /* ---- 1. entitlement, before any work is done ------------------------- */
 
   const access = await resolveAccess();
-  if (!access.ok || !access.user) {
+  /*
+   * A used-up allowance -- or no allowance at all: a plan that lapsed, a
+   * single download already used -- is not a refusal yet. The same file
+   * downloaded again costs nothing (see the reservation below), and whether
+   * this is that file is not known until the body has been read. Only the
+   * two denials that no repeat can lift end here: not signed in, revoked.
+   */
+  const quotaDenied = !access.ok && !!access.user && access.denial !== 'revoked';
+  if ((!access.ok && !quotaDenied) || !access.user) {
     const denial = access.denial ?? 'no_subscription';
     return fail(denialStatus(denial), denial, denialMessage(denial));
   }
@@ -141,11 +149,51 @@ export async function POST(req: Request) {
    * case is a row left 'pending', which counts. A patch that fails is
    * released below, so a failed attempt never costs a credit.
    */
-  type Reserved = { id: string; dailyRemaining: number } | { denial: Denial };
+  type Reserved = { id: string; dailyRemaining: number; repeat: boolean } | { denial: Denial };
   let reserved: Reserved;
   try {
     reserved = await db().transaction(async (tx): Promise<Reserved> => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${user.id}))`);
+
+      /*
+       * THE SAME FILE AGAIN IS FREE. A file is its index: the same bytes in
+       * the moov are the same video, cut the same way, and the output is the
+       * same file every time. Someone who downloads it again -- lost the
+       * first copy, wants it on another device, pressed the button twice --
+       * has already paid for it, so a completed (or in-flight) job by this
+       * account with this index, within the last thirty days, means no new
+       * credit -- whether the plan is at its cap, has lapsed since, or the
+       * file was a single download bought outright. There is nothing to
+       * farm here: a different video is a different index, and the same
+       * video twice yields the same file.
+       */
+      const since = new Date(Date.now() - 30 * 86_400_000);
+      const prior = await tx.select({ id: schema.patchJobs.id }).from(schema.patchJobs)
+        .where(and(
+          eq(schema.patchJobs.userId, user.id),
+          eq(schema.patchJobs.moovSha256, moovSha256),
+          eq(schema.patchJobs.moovLen, moov.length),
+          eq(schema.patchJobs.countsAgainstQuota, true),
+          inArray(schema.patchJobs.status, ['completed', 'pending']),
+          gt(schema.patchJobs.createdAt, since),
+        ))
+        .limit(1);
+      if (prior.length) {
+        const [row] = await tx.insert(schema.patchJobs).values({
+          userId: user.id,
+          status: 'pending',
+          deviceId: user.deviceId ?? null,
+          ip,
+          multiplier: DEFAULT_MULTIPLIER,
+          moovSha256,
+          moovLen: moov.length,
+          countsAgainstQuota: false,
+          errorCode: 'repeat',
+        }).returning({ id: schema.patchJobs.id });
+        return { id: row.id, dailyRemaining: Math.max(0, access.dailyRemaining), repeat: true };
+      }
+
+      if (quotaDenied) return { denial: access.denial ?? 'daily_quota' };
       const fresh = await resolveAccess(tx);
       if (!fresh.ok) return { denial: fresh.denial ?? 'no_subscription' };
       const [row] = await tx.insert(schema.patchJobs).values({
@@ -158,7 +206,7 @@ export async function POST(req: Request) {
         moovLen: moov.length,
         countsAgainstQuota: true,
       }).returning({ id: schema.patchJobs.id });
-      return { id: row.id, dailyRemaining: fresh.dailyRemaining };
+      return { id: row.id, dailyRemaining: fresh.dailyRemaining, repeat: false };
     });
   } catch (e) {
     console.error('[patch] could not reserve usage', e);
@@ -205,6 +253,7 @@ export async function POST(req: Request) {
       phantomSamples: r.phantomSamples,
       clonedTrack: r.clonedTrack,
       neutralisedEdts: r.neutralisedEdts,
+      ...(reserved.repeat ? { errorCode: 'repeat' } : {}),
     });
 
     return new Response(body as BodyInit, {
@@ -223,7 +272,8 @@ export async function POST(req: Request) {
           clonedTrack: r.clonedTrack,
           neutralisedEdts: r.neutralisedEdts,
           multiplier: DEFAULT_MULTIPLIER,
-          dailyRemaining: Math.max(0, reserved.dailyRemaining - 1),
+          dailyRemaining: reserved.repeat ? reserved.dailyRemaining : Math.max(0, reserved.dailyRemaining - 1),
+          repeat: reserved.repeat,
         }),
       },
     });

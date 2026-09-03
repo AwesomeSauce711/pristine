@@ -33,8 +33,12 @@ const r2 = await fetch(`${base}/api/auth/verify-code`, { method: 'POST', headers
 const cookie = r2.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 ok('signed in', r2.status === 200 && cookie.includes('__Host-pristine_session'));
 
-const me = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json() as { hasPlan: boolean; dailyRemaining: number; dailyCap: number | null };
-ok('account has a plan', me.hasPlan, `cap ${me.dailyCap}, remaining ${me.dailyRemaining}`);
+const me = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json() as { hasPlan: boolean; entitled: boolean; dailyRemaining: number; dailyCap: number | null };
+ok('account may download', me.entitled, `plan ${me.hasPlan}, cap ${me.dailyCap}, remaining ${me.dailyRemaining}`);
+/* On a plan the cap answers 429 daily_quota; a bought single download, once
+ * used, answers with the plans (402 no_subscription) -- there is no
+ * allowance left to count down. */
+const denialAtCap = me.hasPlan ? 'daily_quota' : 'no_subscription';
 
 /* ---- the file ----------------------------------------------------------- */
 const src = 'public/demo/pristine.mp4';
@@ -52,6 +56,15 @@ const headers = (extra: Record<string, string> = {}) => ({
 });
 const post = (body: Uint8Array, extra: Record<string, string> = {}) =>
   fetch(`${base}/api/patch`, { method: 'POST', headers: headers(extra), body: body as BodyInit });
+
+/* A different video, as far as the server can tell: the same index with a
+ * different modification time in mvhd (version 0: +16 from the box start). */
+const variant = (n: number): Uint8Array => {
+  const m = new Uint8Array(scan.moov);
+  const idx = Buffer.from(m).indexOf('mvhd');
+  new DataView(m.buffer, m.byteOffset).setUint32(idx - 4 + 16, 0x50000000 + n);
+  return m;
+};
 
 /* ---- refusals that must cost nothing, while there is still allowance ----- */
 {
@@ -90,10 +103,10 @@ await new Promise<void>((resolve) => {
   ok('a refused attempt cost no credit', still.dailyRemaining === me.dailyRemaining, `remaining ${still.dailyRemaining}`);
 }
 
-/* ---- patches until the cap refuses --------------------------------------- */
+/* ---- patches until the cap refuses: a different video each time ---------- */
 const remaining = me.dailyRemaining;
 for (let i = 0; i < remaining; i++) {
-  const res = await post(scan.moov);
+  const res = await post(i === 0 ? scan.moov : variant(i));
   const meta = JSON.parse(res.headers.get('x-pristine-result') ?? '{}') as Record<string, number | boolean>;
   const body = new Uint8Array(await res.arrayBuffer());
   ok(`patch ${i + 1}/${remaining} served`, res.status === 200, `status ${res.status}`);
@@ -102,15 +115,23 @@ for (let i = 0; i < remaining; i++) {
   ok(`patch ${i + 1} reports remaining ${remaining - i - 1}`, Number(meta.dailyRemaining) === remaining - i - 1, `got ${meta.dailyRemaining}`);
 }
 {
+  /* The first file again, at the cap: free, and served. */
   const res = await post(scan.moov);
+  const meta = JSON.parse(res.headers.get('x-pristine-result') ?? '{}') as Record<string, number | boolean>;
+  await res.arrayBuffer();
+  ok('the same file again is served for free at the cap', res.status === 200 && meta.repeat === true, `status ${res.status} repeat ${meta.repeat}`);
+  ok('the free repeat leaves remaining at 0', Number(meta.dailyRemaining) === 0, `got ${meta.dailyRemaining}`);
+}
+{
+  const res = await post(variant(100));
   const j = await res.json().catch(() => ({})) as { code?: string };
-  ok('the next patch is refused at the cap', res.status === 429 && j.code === 'daily_quota', `status ${res.status} ${j.code ?? ''}`);
+  ok('a new file is refused at the cap', (res.status === 429 || res.status === 402) && j.code === denialAtCap, `status ${res.status} ${j.code ?? ''}`);
 }
 
 /* ---- two at once at the cap: neither slips through --------------------- */
 {
-  const [a, b] = await Promise.all([post(scan.moov), post(scan.moov)]);
-  ok('parallel requests at the cap are both refused', a.status === 429 && b.status === 429, `${a.status} ${b.status}`);
+  const [a, b] = await Promise.all([post(variant(101)), post(variant(102))]);
+  ok('parallel new files at the cap are both refused', a.status >= 400 && a.status < 500 && b.status >= 400 && b.status < 500, `${a.status} ${b.status}`);
 }
 
 const after = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json() as { dailyRemaining: number };

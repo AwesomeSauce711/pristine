@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PLANS, PLAN_ORDER, annualSavingPct, money, type PlanId } from '@/lib/plans';
+import { useMe } from '@/lib/use-me';
 
 /*
  * The pricing ladder, and the consent step in front of Stripe.
@@ -34,10 +36,14 @@ import { PLANS, PLAN_ORDER, annualSavingPct, money, type PlanId } from '@/lib/pl
  * `signedIn` is gone too: with anonymous checkout everybody gets the same
  * disclosure, the same checkbox and the same payment control.
  */
+const SINGLE_CENTS = 99;
+
 export default function PricingTable() {
-  const [busy, setBusy] = useState<PlanId | null>(null);
+  const [busy, setBusy] = useState<PlanId | 'single' | null>(null);
   const [error, setError] = useState('');
+  const [done, setDone] = useState<PlanId | null>(null);
   const router = useRouter();
+  const me = useMe();
 
   /*
    * Straight to Stripe. There used to be a modal here that repeated the price,
@@ -53,7 +59,13 @@ export default function PricingTable() {
    */
   /* Back from sign-in with the plan they chose: start it without a second click. */
   useEffect(() => {
-    const chosen = new URLSearchParams(window.location.search).get('plan');
+    const params = new URLSearchParams(window.location.search);
+    const chosen = params.get('plan');
+    if (chosen === 'single') {
+      window.history.replaceState(null, '', window.location.pathname);
+      void startSingle();
+      return;
+    }
     if (!chosen || !(chosen in PLANS)) return;
     window.history.replaceState(null, '', window.location.pathname);
     void start(chosen as PlanId);
@@ -88,6 +100,144 @@ export default function PricingTable() {
       setError('Checkout could not be started. Please check your connection.');
       setBusy(null);
     }
+  }
+
+  /* One download for 99 cents, for someone without a plan. The same route
+   * as a subscriber's top-up; the server sizes it to one. */
+  async function startSingle() {
+    setBusy('single');
+    setError('');
+    try {
+      const res = await fetch('/api/billing/refill', { method: 'POST' });
+      const data = await res.json();
+      if (res.status === 401 && data.code === 'sign_in_required') {
+        const back = `${window.location.pathname}?plan=single`;
+        router.push(`/sign-in?next=${encodeURIComponent(back)}`);
+        return;
+      }
+      if (!res.ok || !data.url) {
+        setError(data.message ?? 'Checkout could not be started. Please try again.');
+        setBusy(null);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setError('Checkout could not be started. Please check your connection.');
+      setBusy(null);
+    }
+  }
+
+  /* A bigger plan for a subscriber: the existing subscription is changed,
+   * charged today, the old period credited. No checkout page. */
+  async function upgrade(plan: PlanId) {
+    setBusy(plan);
+    setError('');
+    try {
+      const res = await fetch('/api/billing/upgrade', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message ?? 'The plan could not be changed. Please try again.');
+        setBusy(null);
+        return;
+      }
+      setDone(plan);
+      setBusy(null);
+      router.push('/account');
+      router.refresh();
+    } catch {
+      setError('The plan could not be changed. Please check your connection.');
+      setBusy(null);
+    }
+  }
+
+  /*
+   * A SUBSCRIBER SEES THEIR PLAN, not the menu. They cannot buy a second
+   * subscription (checkout refuses one), so three cards would be three ways
+   * to be told no. Instead: the plan they have, the way to manage it, and --
+   * when a bigger plan exists -- the bigger plans, as upgrades.
+   */
+  const currentId = me.hasPlan && me.tier && me.tier in PLANS ? (me.tier as PlanId) : null;
+  if (currentId) {
+    const current = PLANS[currentId];
+    const bigger = PLAN_ORDER.filter((id) => PLAN_ORDER.indexOf(id) > PLAN_ORDER.indexOf(currentId));
+    return (
+      <>
+        <div className="mx-auto max-w-3xl">
+          <div className="plate plate-face plate-glow glow-iri relative rounded-panel p-6 md:p-8">
+            <span className="badge-iri absolute -top-2.5 left-6 rounded-full px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] md:text-[10px]">
+              Your plan
+            </span>
+            <div className="flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <h3 className="text-[15px] font-medium">{current.name}</h3>
+                <div className="mt-2 flex items-baseline gap-1.5">
+                  <span className="price-pop tabular text-[2.2rem] font-medium leading-none tracking-tight">{money(current.amount)}</span>
+                  <span className="text-[13px] text-dim">/{current.interval}</span>
+                </div>
+                <p className="mt-3 text-[13.5px] text-muted">
+                  <span className="tabular text-text">{current.dailyPatchCap}</span>{' '}
+                  {current.dailyPatchCap === 1 ? 'video' : 'videos'} a day ·{' '}
+                  <span className="tabular text-text">{current.periodPatchCap.toLocaleString()}</span> per {current.interval}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link href="/account" className="pill pill-ghost">Manage billing</Link>
+              </div>
+            </div>
+          </div>
+
+          {bigger.length > 0 && (
+            <>
+              <p className="legend mt-10 text-center">Upgrade</p>
+              <div className={`mt-5 grid grid-cols-1 gap-4 ${bigger.length > 1 ? 'md:grid-cols-2' : ''}`}>
+                {bigger.map((id) => {
+                  const p = PLANS[id];
+                  return (
+                    <div key={id} className={`plate plate-face tier-card relative flex flex-col rounded-panel p-6 tier-${id}`}>
+                      <h3 className="text-[15px] font-medium">{p.name}</h3>
+                      <div className="mt-2 flex items-baseline gap-1.5">
+                        <span className="tabular text-[2rem] font-medium leading-none tracking-tight">{money(p.amount)}</span>
+                        <span className="text-[13px] text-dim">/{p.interval}</span>
+                      </div>
+                      {id === 'year' && (
+                        <p className="tabular mt-2 text-[12px] text-good">Save {annualSavingPct}% against monthly</p>
+                      )}
+                      <p className="mt-3 text-[13.5px] text-muted">
+                        <span className="tabular text-text">{p.dailyPatchCap}</span> videos a day ·{' '}
+                        <span className="tabular text-text">{p.periodPatchCap.toLocaleString()}</span> per {p.interval}
+                      </p>
+                      <div className="mt-6 border-t border-line-soft pt-5">
+                        <button
+                          onClick={() => upgrade(id)}
+                          disabled={busy !== null || done !== null}
+                          className={`pill w-full disabled:opacity-60 ${id === 'year' ? 'pill-primary' : 'pill-ghost'}`}
+                        >
+                          {busy === id ? 'Changing your plan…' : done === id ? 'Done' : `Switch to ${p.name}`}
+                        </button>
+                        <p className="mt-3 text-center text-[11.5px] leading-relaxed text-dim">
+                          {money(p.amount)} today, then {money(p.amount)}/{p.interval}. What is left of your {current.name} period
+                          is credited; a free trial ends now. Cancel any time.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {error && (
+            <p className="mx-auto mt-6 max-w-md rounded-lg border border-bad/30 bg-bad/5 px-4 py-3 text-center text-[13px] text-text">
+              {error}
+            </p>
+          )}
+        </div>
+      </>
+    );
   }
 
   return (
@@ -264,6 +414,21 @@ export default function PricingTable() {
         exact amount and the exact date of your first charge before entering any card details.
         Cancel in two clicks from Account → Billing.
       </p>
+
+      {/* The way in for one video: no plan, one download, the top-up price. */}
+      <div className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-5 gap-y-3 rounded-panel border border-line bg-white/[0.02] px-5 py-4">
+        <p className="text-[13.5px] leading-relaxed text-muted">
+          Just one video? <span className="text-text">One download for {money(SINGLE_CENTS)}</span>, to use
+          within 24 hours. No subscription, nothing recurring.
+        </p>
+        <button
+          onClick={() => startSingle()}
+          disabled={busy !== null}
+          className="pill pill-ghost pill-sm disabled:opacity-60"
+        >
+          {busy === 'single' ? 'Opening secure checkout…' : `Buy one download · ${money(SINGLE_CENTS)}`}
+        </button>
+      </div>
 
 
     </>

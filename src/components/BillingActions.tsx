@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -10,7 +11,10 @@ import { useState } from 'react';
  * wrote. Cancellation has to be at least as easy as signing up, and a
  * home-grown cancel flow is exactly where retention dark patterns appear.
  */
-export default function BillingActions({ signOutOnly = false }: { signOutOnly?: boolean }) {
+export default function BillingActions({
+  signOutOnly = false,
+  upgrade = false,
+}: { signOutOnly?: boolean; upgrade?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<'portal' | 'signout' | null>(null);
   const [error, setError] = useState('');
@@ -55,14 +59,21 @@ export default function BillingActions({ signOutOnly = false }: { signOutOnly?: 
 
   return (
     <div className="mt-7">
-      <button
-        onClick={openPortal}
-        disabled={busy === 'portal'}
-        className="pill pill-ghost
-                   transition hover:border-dim disabled:opacity-40"
-      >
-        {busy === 'portal' ? 'Opening…' : 'Manage billing, update card, or cancel'}
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={openPortal}
+          disabled={busy === 'portal'}
+          className="pill pill-ghost
+                     transition hover:border-dim disabled:opacity-40"
+        >
+          {busy === 'portal' ? 'Opening…' : 'Manage billing'}
+        </button>
+        {/* Only while a bigger plan exists: on the largest plan there is
+            nothing to upgrade to, and the button is not shown. */}
+        {upgrade && (
+          <Link href="/pricing" className="pill pill-primary">Upgrade</Link>
+        )}
+      </div>
       {error && (
         <p className="mt-3 rounded-lg border border-bad/30 bg-bad/5 px-4 py-2.5 text-[13px] text-text">
           {error}

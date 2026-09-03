@@ -72,10 +72,18 @@ export default async function AccountPage() {
                   There is a payment dispute on this account. Please contact support.
                 </p>
               )}
-              <p className="mt-2 text-[14px] leading-relaxed text-muted">
-                You can upload, analyse and preview videos for free. A plan is needed to
-                download the finished file.
-              </p>
+              {access.ok && access.dailyRemaining > 0 ? (
+                <p className="mt-2 text-[14px] leading-relaxed text-muted">
+                  You have <span className="tabular text-text">{access.dailyRemaining}</span> bought{' '}
+                  {access.dailyRemaining === 1 ? 'download' : 'downloads'} to use
+                  {access.accessUntil ? <> before <span className="tabular text-text">{dateFmt(access.accessUntil)}</span></> : null}.
+                </p>
+              ) : (
+                <p className="mt-2 text-[14px] leading-relaxed text-muted">
+                  You can upload, analyse and preview videos for free. A plan, or a single download
+                  for {money(99)}, is needed to save the finished file.
+                </p>
+              )}
               <Link
                 href="/pricing"
                 className="pill pill-primary mt-6"
@@ -139,7 +147,7 @@ export default async function AccountPage() {
                 </dl>
               )}
 
-              <BillingActions />
+              <BillingActions upgrade={!!plan && plan.id !== 'year' && !ent.revokedAt} />
             </>
           )}
         </section>

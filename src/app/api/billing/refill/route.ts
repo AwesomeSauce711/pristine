@@ -52,14 +52,20 @@ export async function POST(req: Request) {
   const rows = await db().select().from(schema.entitlements)
     .where(eq(schema.entitlements.userId, user.id)).limit(1);
   const ent = rows[0];
-  const live = !!ent && ent.accessUntil > new Date() && !ent.revokedAt;
-  if (!live) {
+  if (ent?.revokedAt) {
     return Response.json(
-      { code: 'no_plan', message: 'A refill adds to a plan. Choose a plan first.' },
-      { status: 409 },
+      { code: 'revoked', message: 'This account cannot make purchases. Please contact support.' },
+      { status: 403 },
     );
   }
-  const count = Math.max(1, Math.min(50, ent.dailyPatchCap));
+  const live = !!ent && ent.accessUntil > new Date();
+  /*
+   * With a plan, a top-up is another day's allowance. Without one it is ONE
+   * download for the same 99 cents -- the way in for someone who has one
+   * file to post and no wish to subscribe. Same Price, same ledger, same
+   * refund path; only the count differs.
+   */
+  const count = live ? Math.max(1, Math.min(50, ent.dailyPatchCap)) : 1;
 
   let priceId: string;
   try {
@@ -98,12 +104,15 @@ export async function POST(req: Request) {
     metadata: meta,
     payment_intent_data: {
       metadata: meta,
-      description: `Pristine refill: ${count} more today`,
+      description: live ? `Pristine refill: ${count} more today` : 'Pristine: one download',
     },
     custom_text: {
       submit: {
-        message: `One-time payment of $${(REFILL_AMOUNT_CENTS / 100).toFixed(2)}. Adds ${count} more `
-          + `${count === 1 ? 'video' : 'videos'} to your allowance for the next 24 hours. Nothing recurring.`,
+        message: live
+          ? `One-time payment of $${(REFILL_AMOUNT_CENTS / 100).toFixed(2)}. Adds ${count} more `
+            + `${count === 1 ? 'video' : 'videos'} to your allowance for the next 24 hours. Nothing recurring.`
+          : `One-time payment of $${(REFILL_AMOUNT_CENTS / 100).toFixed(2)} for one download, `
+            + 'to use within 24 hours. No subscription, nothing recurring.',
       },
     },
     allow_promotion_codes: false,

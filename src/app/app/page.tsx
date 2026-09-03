@@ -195,7 +195,7 @@ export default function AppPage() {
       /* `hasPlan`, not `entitled`: a subscriber who has used today's allowance
        * still has a plan, and the server answers a patch with 429 and the
        * refill offer -- not with the plans. */
-      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.hasPlan ?? data.entitled) };
+      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.entitled || data.hasPlan) };
       setSignedIn(next.signedIn);
       setEntitled(next.entitled);
       setRefill(data.refill ?? null);
@@ -346,6 +346,13 @@ export default function AppPage() {
     setUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
 
     try {
+      /* A gigabyte is the ceiling stated on the page and in the terms. Past
+       * it, the honest answer is a shorter cut or a pass through HandBrake,
+       * and the message says so rather than failing later. */
+      if (f.size > 1024 ** 3) {
+        throw new Mp4Error('too_big',
+          'That file is over 1 GB. Trim it, or compress it with HandBrake, and bring it back.');
+      }
       const result = await scanFile(f);
       setScan(result);
       setFile(f);
@@ -655,7 +662,7 @@ export default function AppPage() {
                         </p>
                         <p className="mt-1.5 text-[13px] text-muted">
                           <span className="pointer-fine:hidden">Straight from your camera roll · </span>
-                          MP4 or MOV · up to 4K · up to 60 fps · any length
+                          MP4 or MOV · up to 4K · up to 60 fps · up to 1 GB
                         </p>
                       </>
                     )}
@@ -689,7 +696,8 @@ export default function AppPage() {
                     </div>
                     <p className="text-center text-[12.5px] leading-relaxed text-muted">
                       What you send is what stays. Shot smaller? Upscale with Topaz Video AI first,
-                      then export and bring that file here.
+                      then export and bring that file here. Over 1 GB? Trim it, or compress it with
+                      HandBrake. Neither is ours; both are what people use.
                     </p>
                   </div>
                 </Plate3D>

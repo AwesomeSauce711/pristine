@@ -148,7 +148,13 @@ export default function Terms() {
         after your first download of the day; the exact time is shown in your account. If you
         reach it, you can top the day up for <strong>{money(REFILL_AMOUNT_CENTS)}</strong> as many
         times as you like. A top-up is a one-off charge for that day, not a subscription: it does
-        not renew, and it is refundable only if you have not used it.
+        not renew, and it is refundable only if you have not used it. Without a plan, the same{' '}
+        {money(REFILL_AMOUNT_CENTS)} buys a single download, to use within 24 hours, on the same
+        terms. Downloading the same video again does not use another download.
+      </p>
+      <p>
+        <strong>File size.</strong> Files up to 1 GB are accepted. Larger files should be trimmed
+        or compressed before upload.
       </p>
       <p>
         <strong>Price changes.</strong> We may change a plan&rsquo;s price. A change never applies
@@ -198,6 +204,11 @@ export default function Terms() {
         The service, its software, its name and its design belong to us or our licensors and are
         protected by intellectual-property law. These terms give you a personal, non-exclusive,
         non-transferable licence to use the service while you are subscribed, and nothing more.
+      </p>
+      <p>
+        <strong>Other companies&rsquo; products.</strong> Topaz Video AI, HandBrake and TikTok are
+        the products and marks of their respective owners, mentioned only to describe how people
+        use this service. We are not affiliated with, sponsored by or endorsed by any of them.
       </p>
 
       <h2>Refunds</h2>

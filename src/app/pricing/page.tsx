@@ -38,7 +38,11 @@ const QUESTIONS = [
   },
   {
     q: 'What if I need more than my daily allowance?',
-    a: 'Every plan has a daily number of downloads, and it resets 24 hours after your first download of the day. If you reach it, you can top the day up for $0.99 — a one-off payment, as many times as you like, nothing recurring.',
+    a: 'Every plan has a daily number of downloads, and it resets 24 hours after your first download of the day. If you reach it, you can top the day up for $0.99 — a one-off payment, as many times as you like, nothing recurring. Downloading the same video again is always free.',
+  },
+  {
+    q: 'I only have one video. Do I need a plan?',
+    a: 'No. Sign in and buy a single download for $0.99 — one file, to use within 24 hours, no subscription and nothing recurring. If you find yourself posting regularly, a plan works out cheaper.',
   },
 ];
 

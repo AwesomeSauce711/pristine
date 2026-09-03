@@ -26,7 +26,10 @@ export async function GET(req: Request) {
       /* A live plan, whether or not there is allowance left right now. The
        * tool page gates the plans on THIS: a subscriber at the day's cap must
        * be offered a refill, never the plans again. */
-      hasPlan: access.ok || access.denial === 'daily_quota' || access.denial === 'period_quota',
+      /* A subscription, specifically: a bought single download grants access
+       * (entitled) without a plan, and the plans must still be on offer. */
+      hasPlan: !!access.tier
+        && (access.ok || access.denial === 'daily_quota' || access.denial === 'period_quota'),
       state: access.state,
       tier: access.tier,
       accessUntil: access.accessUntil?.toISOString() ?? null,
