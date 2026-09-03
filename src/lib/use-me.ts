@@ -20,8 +20,8 @@ export function useMe(): Me {
     let live = true;
     const check = () => fetch('/api/me', { cache: 'no-store' })
       .then((r) => r.json())
-      .then((d: { signedIn?: boolean; entitled?: boolean }) => {
-        if (live) setMe({ signedIn: !!d.signedIn, entitled: !!d.entitled });
+      .then((d: { signedIn?: boolean; entitled?: boolean; hasPlan?: boolean }) => {
+        if (live) setMe({ signedIn: !!d.signedIn, entitled: !!(d.hasPlan ?? d.entitled) });
       })
       .catch(() => { /* leave the signed-out default */ });
     void check();

@@ -61,7 +61,7 @@ export function priceIdForPlan(id: PlanId): string {
  * process every ten minutes; a Price cannot change amount, only be replaced.
  */
 export class PriceMismatchError extends Error {
-  constructor(public readonly plan: PlanId, detail: string) {
+  constructor(public readonly plan: PlanId | 'refill', detail: string) {
     super(`Stripe Price for the ${plan} plan does not match the site: ${detail}`);
     this.name = 'PriceMismatchError';
   }
@@ -122,3 +122,38 @@ export const trialEndOf = (sub: Stripe.Subscription): Date | null => secs(sub.tr
 export const trialStartOf = (sub: Stripe.Subscription): Date | null => secs(sub.trial_start);
 export const canceledAtOf = (sub: Stripe.Subscription): Date | null => secs(sub.canceled_at);
 export const endedAtOf = (sub: Stripe.Subscription): Date | null => secs(sub.ended_at);
+
+/*
+ * THE REFILL PRICE: one day's allowance again, for 99 cents, one-time.
+ *
+ * Optional. Until STRIPE_PRICE_REFILL is set the offer does not appear and the
+ * route refuses, so the feature ships inert and switches on when the Price
+ * exists (npm run stripe:seed creates it). Verified the same way as the plan
+ * prices -- amount, currency, and that it is NOT recurring, because a
+ * recurring Price here would silently start a second subscription.
+ */
+export const REFILL_AMOUNT_CENTS = 99;
+
+export function refillPriceId(): string | null {
+  return process.env.STRIPE_PRICE_REFILL || null;
+}
+
+export async function verifiedRefillPriceId(): Promise<string> {
+  const priceId = refillPriceId();
+  if (!priceId) throw new PriceMismatchError('refill', 'STRIPE_PRICE_REFILL is not set');
+  const at = priceChecked.get(priceId);
+  if (at && Date.now() - at < PRICE_CHECK_TTL_MS) return priceId;
+
+  const price = await stripe().prices.retrieve(priceId);
+  const problems: string[] = [];
+  if (!price.active) problems.push('the Price is archived');
+  if (price.unit_amount !== REFILL_AMOUNT_CENTS) {
+    problems.push(`Stripe charges ${(price.unit_amount ?? 0) / 100} and the site says ${REFILL_AMOUNT_CENTS / 100}`);
+  }
+  if (price.currency !== 'usd') problems.push(`currency is ${price.currency}, not usd`);
+  if (price.recurring) problems.push('the Price is recurring; a refill must be one-time');
+  if (problems.length) throw new PriceMismatchError('refill', problems.join('; '));
+
+  priceChecked.set(priceId, Date.now());
+  return priceId;
+}

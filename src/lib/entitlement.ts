@@ -46,6 +46,10 @@ export interface Access {
   tier: string | null;
   /** Remaining patches in the rolling 24h window. */
   dailyRemaining: number;
+  /** The plan's own cap, so the UI can say what a refill adds. */
+  dailyCap?: number;
+  /** Extra patches bought in the last 24 hours. */
+  refillsToday?: number;
   /** Remaining patches in the current billing period. */
   periodRemaining: number;
   /** When the daily window frees up again. */
@@ -136,8 +140,28 @@ export async function resolveAccess(): Promise<Access> {
         : sql`true`,
     ));
 
-  const dailyRemaining = Math.max(0, ent.dailyPatchCap - Number(daily?.n ?? 0));
-  const periodRemaining = Math.max(0, ent.periodPatchCap - Number(period?.n ?? 0));
+  /*
+   * Refills. Each one adds the plan's daily cap for 24 hours from purchase,
+   * and the same again to the period, so a customer who has bought one is
+   * never stopped by the period cap for having used the day's.
+   */
+  const [refillDay] = await db().select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+    .from(schema.patchRefills)
+    .where(and(
+      eq(schema.patchRefills.userId, user.id),
+      sql`${schema.patchRefills.revokedAt} is null`,
+      gt(schema.patchRefills.createdAt, since),
+    ));
+  const [refillPeriod] = await db().select({ n: sql<number>`coalesce(sum(${schema.patchRefills.count}), 0)` })
+    .from(schema.patchRefills)
+    .where(and(
+      eq(schema.patchRefills.userId, user.id),
+      sql`${schema.patchRefills.revokedAt} is null`,
+      ent.periodStartedAt ? gt(schema.patchRefills.createdAt, ent.periodStartedAt) : sql`true`,
+    ));
+
+  const dailyRemaining = remainingWithRefills(ent.dailyPatchCap, Number(daily?.n ?? 0), Number(refillDay?.n ?? 0));
+  const periodRemaining = remainingWithRefills(ent.periodPatchCap, Number(period?.n ?? 0), Number(refillPeriod?.n ?? 0));
 
   const base: Access = {
     ok: true,
@@ -147,6 +171,8 @@ export async function resolveAccess(): Promise<Access> {
     tier: ent.tier,
     dailyRemaining,
     periodRemaining,
+    dailyCap: ent.dailyPatchCap,
+    refillsToday: Number(refillDay?.n ?? 0),
     resetsAt: new Date(Date.now() + 86_400_000),
   };
 
@@ -156,6 +182,15 @@ export async function resolveAccess(): Promise<Access> {
 }
 
 /** Human-facing reason, safe to show as-is. */
+/**
+ * What is left of an allowance once refills are counted. Pure, and pinned by
+ * scripts/verify-refill.mts: a refill adds exactly the cap it was bought
+ * against, never goes negative, and never subtracts.
+ */
+export function remainingWithRefills(cap: number, used: number, refills: number): number {
+  return Math.max(0, cap + Math.max(0, refills) - Math.max(0, used));
+}
+
 export function denialMessage(d: Denial): string {
   switch (d) {
     case 'not_signed_in':
@@ -167,7 +202,7 @@ export function denialMessage(d: Denial): string {
     case 'revoked':
       return 'There is a payment problem on this account. Please contact support.';
     case 'daily_quota':
-      return "You've hit today's limit. It resets 24 hours after your earliest patch today.";
+      return "You've used today's allowance. It comes back 24 hours after your earliest patch today.";
     case 'period_quota':
       return "You've used every patch in this billing period.";
   }

@@ -1,5 +1,5 @@
 import { methodStatus } from '@/lib/method-status';
-import { verifiedPriceIdForPlan } from '@/lib/billing/stripe';
+import { refillPriceId, verifiedPriceIdForPlan, verifiedRefillPriceId } from '@/lib/billing/stripe';
 import { PLAN_ORDER } from '@/lib/plans';
 
 /*
@@ -14,6 +14,7 @@ async function pricesVerdict(): Promise<'ok' | 'mismatch' | 'unavailable'> {
   if (!process.env.STRIPE_SECRET_KEY) return 'unavailable';
   try {
     for (const id of PLAN_ORDER) await verifiedPriceIdForPlan(id);
+    if (refillPriceId()) await verifiedRefillPriceId();
     return 'ok';
   } catch (e) {
     return e instanceof Error && e.name === 'PriceMismatchError' ? 'mismatch' : 'unavailable';

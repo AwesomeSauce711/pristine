@@ -139,6 +139,11 @@ export default function AppPage() {
    * skipped for it: nothing to fly from, and the morph plays a second copy
    * of the video while hiding the real stage until its animation ends. */
   const [skipMorph, setSkipMorph] = useState(false);
+  /* The day's allowance is used up. The offer to add one more day's worth. */
+  const [quotaHit, setQuotaHit] = useState<{ code: string; message: string } | null>(null);
+  const [refillBusy, setRefillBusy] = useState(false);
+  const [refill, setRefill] = useState<{ amountCents: number } | null>(null);
+  const [dailyCap, setDailyCap] = useState<number | null>(null);
   const router = useRouter();
   /* Which of PATCH_STEPS is showing while the download is being prepared. */
   const [patchStep, setPatchStep] = useState(0);
@@ -177,9 +182,14 @@ export default function AppPage() {
     try {
       const res = await fetch('/api/me', { cache: 'no-store' });
       const data = await res.json();
-      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.entitled) };
+      /* `hasPlan`, not `entitled`: a subscriber who has used today's allowance
+       * still has a plan, and the server answers a patch with 429 and the
+       * refill offer -- not with the plans. */
+      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.hasPlan ?? data.entitled) };
       setSignedIn(next.signedIn);
       setEntitled(next.entitled);
+      setRefill(data.refill ?? null);
+      setDailyCap(typeof data.dailyCap === 'number' ? data.dailyCap : null);
       return next;
     } catch {
       /* leave them as they were; the server decides anyway */
@@ -336,6 +346,29 @@ export default function AppPage() {
     if (f) void take(f);
   };
 
+  /* One more day's allowance for 99 cents: stash the file, go to Stripe, and
+   * come back to the same download. */
+  async function buyRefill() {
+    if (!file) return;
+    setRefillBusy(true);
+    try {
+      await stashBeforeLeaving(file);
+      const res = await fetch('/api/billing/refill', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        setError(data.message ?? 'The refill could not be started. Please try again.');
+        setStage('error');
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setError('The refill could not be started. Please check your connection.');
+      setStage('error');
+    } finally {
+      setRefillBusy(false);
+    }
+  }
+
   async function download() {
     if (!scan || !file) return;
 
@@ -390,6 +423,14 @@ export default function AppPage() {
         }
         setPaywall(true);
         return;
+      }
+      if (res.status === 429) {
+        /* The allowance, not a fault: keep the preview, offer the refill. */
+        const body = await res.json().catch(() => ({}));
+        if (body.code === 'daily_quota' || body.code === 'period_quota') {
+          setQuotaHit({ code: body.code, message: body.message ?? '' });
+          return;
+        }
       }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -783,6 +824,39 @@ export default function AppPage() {
                       {busy ? 'Patching…' : receipt ? 'Download again' : 'Download'}
                     </button>
                   </div>
+
+                  {quotaHit && (
+                    <div className="mt-6 rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
+                      <p className="text-[14px] text-text">{quotaHit.message}</p>
+                      {refill ? (
+                        <>
+                          <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
+                            Need it today? Add {dailyCap ?? 'another day\u2019s'}{' '}
+                            {dailyCap === 1 ? 'more video' : 'more videos'} for the next 24 hours --{' '}
+                            <span className="tabular text-text">${(refill.amountCents / 100).toFixed(2)}</span>,
+                            one-time, as often as you like.
+                          </p>
+                          <div className="mt-4 flex flex-wrap items-center gap-3">
+                            <button
+                              onClick={() => void buyRefill()}
+                              disabled={refillBusy}
+                              className="pill pill-primary pill-sm disabled:opacity-60"
+                              {...soundProps('hover')}
+                            >
+                              {refillBusy ? 'Opening secure checkout\u2026' : `Add ${dailyCap ?? ''} for $${(refill.amountCents / 100).toFixed(2)}`}
+                            </button>
+                            <button onClick={() => setQuotaHit(null)} className="pill pill-ghost pill-sm text-dim">
+                              Not now
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
+                          Come back tomorrow, or upgrade from your account for a bigger daily allowance.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* The work, shown: a step label and a bar that fills over the hold. */}
                   {busy && (

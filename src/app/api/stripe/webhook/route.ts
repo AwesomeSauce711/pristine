@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import { db, schema } from '@/db';
 import { revokeAllSessions } from '@/lib/auth';
@@ -143,6 +143,13 @@ async function handle(event: Stripe.Event): Promise<void> {
      */
     case 'checkout.session.completed': {
       const s = event.data.object;
+
+      /* A refill is a one-time payment, not a subscription; it has its own
+       * ledger and nothing below applies to it. */
+      if (s.mode === 'payment' && s.metadata?.kind === 'refill') {
+        await recordRefill(s);
+        return;
+      }
       /*
        * client_reference_id is a user id ONLY for a signed-in checkout. An
        * anonymous one carries `pc_<pending id>`, which is not a user and is not
@@ -249,6 +256,14 @@ async function handle(event: Stripe.Event): Promise<void> {
      */
     case 'charge.refunded': {
       const charge = event.data.object;
+      /* A refunded refill takes its allowance with it. Any refund, not only a
+       * full one: it is 99 cents, and a partial refund of that is a mistake. */
+      const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      if (pi) {
+        await db().update(schema.patchRefills)
+          .set({ revokedAt: at })
+          .where(and(eq(schema.patchRefills.stripePaymentIntentId, pi), isNull(schema.patchRefills.revokedAt)));
+      }
       const customerId = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
       const userId = customerId ? await userIdForCustomer(customerId) : null;
 
@@ -407,6 +422,26 @@ async function userIdForSubscription(subId: string | null): Promise<string | nul
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.stripeSubscriptionId, subId)).limit(1);
   return rows[0]?.userId ?? null;
+}
+
+/**
+ * A paid refill session becomes one ledger row. Idempotent on the session id:
+ * Stripe retries, and a retry must not sell the same refill twice.
+ */
+async function recordRefill(s: Stripe.Checkout.Session): Promise<void> {
+  if (s.payment_status !== 'paid') return;
+  const ref = s.client_reference_id;
+  const userId = (ref && !ref.startsWith('pc_') ? ref : null) ?? s.metadata?.user_id ?? null;
+  if (!userId) return;
+  const count = Math.max(1, Math.min(50, Number.parseInt(s.metadata?.count ?? '1', 10) || 1));
+  const pi = typeof s.payment_intent === 'string' ? s.payment_intent : s.payment_intent?.id ?? null;
+  await db().insert(schema.patchRefills).values({
+    userId,
+    count,
+    amountCents: s.amount_total ?? 0,
+    stripeSessionId: s.id,
+    stripePaymentIntentId: pi,
+  }).onConflictDoNothing();
 }
 
 async function upsertInvoice(inv: Stripe.Invoice): Promise<void> {

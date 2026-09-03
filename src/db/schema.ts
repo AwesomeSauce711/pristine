@@ -367,3 +367,29 @@ export const pendingCheckouts = pgTable('pending_checkouts', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   claimedAt: timestamp('claimed_at', { withTimezone: true }),
 });
+
+/*
+ * patch_refills -- extra patches bought for today.
+ *
+ * A plan's daily cap is the thing that stops one subscription serving a whole
+ * group chat, and it is also the thing that stops a single customer who
+ * genuinely needs a fourth export today. A refill resolves that without an
+ * upgrade: 99 cents adds one more day's allowance -- the plan's own cap --
+ * for the next 24 hours, and again for the period, as many times as they
+ * like. Each row is one purchase; the allowance is summed at read time in
+ * resolveAccess, so nothing here is ever "spent" or decremented.
+ *
+ * Revoked on refund (charge.refunded matched by payment intent), so a refund
+ * takes the allowance with it.
+ */
+export const patchRefills = pgTable('patch_refills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  /** Patches this refill adds: the plan's daily cap at the time of purchase. */
+  count: integer('count').notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  stripeSessionId: text('stripe_session_id').notNull().unique(),
+  stripePaymentIntentId: text('stripe_payment_intent_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});

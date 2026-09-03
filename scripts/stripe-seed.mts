@@ -104,6 +104,26 @@ for (const id of PLAN_ORDER) {
   env.push(`${plan.priceEnv}=${price.id}`);
 }
 
+/* The refill: 99 cents, one-time, one more day's allowance. */
+{
+  const found = await stripe.prices.list({ lookup_keys: ['pristine_refill'], limit: 1 });
+  let price = found.data[0];
+  if (price && price.unit_amount === 99 && !price.recurring) {
+    console.log(`  refill    ${price.id}  (existing)`);
+  } else {
+    price = await stripe.prices.create({
+      product: product.id,
+      lookup_key: 'pristine_refill',
+      transfer_lookup_key: true,
+      unit_amount: 99,
+      currency: 'usd',
+      metadata: { kind: 'refill' },
+    });
+    console.log(`  refill    ${price.id}  (created $0.99 one-time)`);
+  }
+  env.push(`STRIPE_PRICE_REFILL=${price.id}`);
+}
+
 console.log('\n  Paste into .env.local:\n');
 for (const line of env) console.log(`    ${line}`);
 
