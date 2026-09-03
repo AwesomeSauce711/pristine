@@ -97,3 +97,11 @@ export function engagementAt(t: number, a = CRUSHED_ENGAGEMENT, b = PRISTINE_ENG
     shares: at('shares', 0.14),
   };
 }
+
+/*
+ * The two posts the preview compares, on the tool page and the landing page
+ * alike: the ordinary upload nobody saw, and the one that landed. Illustrative
+ * figures, labelled as such wherever they are shown.
+ */
+export const CRUSHED_STATS: Engagement = { likes: 19, comments: 2, bookmarks: 1, shares: 0 };
+export const PRISTINE_STATS: Engagement = { likes: 1_200_000, comments: 6_497, bookmarks: 41_800, shares: 18_300 };

@@ -1,5 +1,12 @@
 """
-demo-pair.py -- weld the two TikTok renditions into the landing comparison.
+demo-pair.py -- weld the two TikTok renditions into one side-by-side file.
+
+NOT WHAT THE LANDING PAGE SHOWS ANY MORE. The landing comparison is now the tool
+page's preview fed a bundled clip of the pristine rendition (see
+src/components/CompareStage.tsx); the two-rendition weld this builds was never
+reliable on a phone. Kept because the measurement it does -- the offset between
+TikTok's two renditions, and the cuts -- is the record of how those files
+actually relate, and because a real-against-real comparison may be wanted again.
 
     python scripts/demo-pair.py <crushed.mp4> <pristine.mp4> [out-dir]
 

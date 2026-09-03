@@ -32,7 +32,7 @@ import type { CSSProperties, ReactNode } from 'react';
  * thin band, two static gradients kept faint enough that the comparison under
  * them is never the thing they soften), the notch above it, and — with
  * `illustrative` — the one word the landing page's screen carries for the
- * engagement figures floating above it, which moved here from CompareSlider.
+ * engagement figures floating above it, which moved here from PreviewCompare.
  * Nothing here has a filter, a mask or a backdrop filter, and nothing here
  * takes pointer events, so the slider underneath gets every press.
  *

@@ -321,10 +321,7 @@ export default function Home() {
           * carries a data-depth: the phone already moves with the reader.
           */}
         <SceneSection className="py-10 md:py-16">
-          <CompareStage
-            src="/demo/pair.mp4"
-            poster="/demo/pair.jpg"
-          />
+          <CompareStage src="/demo/pristine.mp4" />
         </SceneSection>
         </div>
 

@@ -1,83 +1,55 @@
 /*
- * verify-sync.mts — the comparison's two halves are the same frame.
+ * verify-sync.mts -- the comparison draws the crushed side at the right size.
  *
- * WHAT THIS USED TO TEST, AND WHY IT NO LONGER DOES
- * The slider was two <video> elements corrected against each other, and this
- * file tested the correction: deadbands, rate nudges, when to seek. Every
- * version of that was wrong in one direction or the other — too eager and it
- * juddered, too loose and the halves sat visibly apart — because two elements
- * are two clocks and `currentTime` is only accurate to a frame, so even the
- * measurement of the error had a frame of noise in it. Both failures were
- * reported from the live page.
+ * WHAT THIS USED TO TEST
+ * First the correction that kept two <video> elements together; then the
+ * geometry of reading two halves out of one welded file. Both mechanisms are
+ * gone: the landing page now shows the same preview the tool page does -- one
+ * visible video, and a small crushed copy of it drawn beside it -- which is the
+ * only version that ever worked on a phone. There is no sync left to test,
+ * because there is one clock.
  *
- * There is one element now. Both halves are read from a single file that holds
- * the two renditions side by side, in one pair of draw calls on one tick. They
- * are the same frame BY CONSTRUCTION, so there is no timing left to test — and
- * a test suite that went on measuring a mechanism that no longer exists would
- * be worse than none.
- *
- * What is worth pinning is the geometry, because getting it wrong is silent:
- * the halves would still be in sync and you would be looking at the wrong part
- * of the picture, or comparing a half against itself.
+ * WHAT IS WORTH PINNING NOW
+ * How much smaller the crushed copy is drawn. Getting it wrong is silent and
+ * it is the whole argument: too small and the text is unreadable and the
+ * comparison looks rigged; too large and there is no visible difference. It is
+ * relative to the screen, not the source (nobody watches 4K at 4K on a phone),
+ * and it never punishes a source that is already at or below the rung.
  */
 
-import { splitDraw } from '../src/components/CompareSlider';
+import { crushReduction } from '../src/components/PreviewCompare';
 
 let pass = 0, fail = 0;
 const ok = (name: string, cond: boolean, detail = '') => {
-  console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${name}${detail ? ` -- ${detail}` : ''}`);
   cond ? pass++ : fail++;
 };
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
-console.log('\ncomparison geometry\n');
+console.log('\ncrush reduction\n');
 
-/* The real shape: two 540x960 renditions welded side by side. */
-const VW = 1080, VH = 960, CW = 900, CH = 1600;
+ok('a 4K source is drawn at 720 over 1080 -- the delivered rung on the screen it lands on',
+  near(crushReduction(2160, 720), 720 / 1080), String(crushReduction(2160, 720)));
 
-const mid = splitDraw(VW, VH, CW, CH, 50);
+ok('a 1080p source gets the identical reduction, so the landing clip need not be 4K',
+  near(crushReduction(1080, 720), crushReduction(2160, 720)));
 
-ok('the two halves are read from different parts of the source',
-  mid.crushed.sx !== mid.pristine.sx,
-  `crushed at x=${mid.crushed.sx}, pristine at x=${mid.pristine.sx}`);
+ok('a 1440p source too: past the screen, more pixels change nothing',
+  near(crushReduction(1440, 720), 720 / 1080));
 
-ok('the crushed half is the left one', mid.crushed.sx === 0);
-ok('the pristine half is the right one', mid.pristine.sx === VW / 2);
+ok('a 720p source is not made worse by a 720p rung', crushReduction(720, 720) === 1,
+  'a source delivered at its own size loses nothing');
 
-ok('neither half reads past its own edge',
-  mid.crushed.sx + mid.crushed.sw === VW / 2 && mid.pristine.sx + mid.pristine.sw === VW,
-  'a half that overran would show a sliver of the other rendition');
+ok('a source below the rung is left alone', crushReduction(540, 720) === 1,
+  'pretending otherwise would be a lie in our own favour');
 
-ok('both halves fill the canvas, so the split is a reveal and not a squeeze',
-  mid.crushed.dw === CW && mid.pristine.dw === CW && mid.crushed.dh === CH,
-  'each side is drawn full-size; the clip is what hides one');
+ok('the reduction is never above 1', [480, 720, 1080, 2160].every((e) => crushReduction(e, 720) <= 1));
 
-/* Both rectangles carry the whole height: a half-height read would silently
- * letterbox one side against the other. */
-ok('both halves take the full height of the source',
-  mid.crushed.sh === VH && mid.pristine.sh === VH);
+ok('a screen wider than the rung crushes harder than a narrow one -- the screen is the reference',
+  crushReduction(2160, 720, 1440) < crushReduction(2160, 720, 1080));
 
-/* The travel. At either end one rendition must be showing WHOLE, with no
- * remnant of the other — that is the whole point of dragging it to the end. */
-const left = splitDraw(VW, VH, CW, CH, 0);
-ok('dragged fully left, the pristine side covers everything',
-  left.clip === 0 && left.pristineVisible, `clip=${left.clip}`);
-
-const right = splitDraw(VW, VH, CW, CH, 100);
-ok('dragged fully right, the pristine side is not drawn at all',
-  right.clip === CW && !right.pristineVisible,
-  'drawing a zero-width sliver is where a seam of the wrong half appears');
-
-/* The divider's position and the clip must be the same number, or the picture
- * and the line the reader is dragging disagree. */
-ok('the clip follows the split exactly',
-  splitDraw(VW, VH, CW, CH, 25).clip === CW * 0.25
-  && splitDraw(VW, VH, CW, CH, 75).clip === CW * 0.75);
-
-/* Out-of-range input comes from motion drive and from a fast drag past the
- * edge; it must clamp rather than read outside the canvas. */
-ok('a split past either end clamps',
-  splitDraw(VW, VH, CW, CH, -20).clip === 0
-  && splitDraw(VW, VH, CW, CH, 140).clip === CW);
+ok('a bigger rung crushes less', crushReduction(2160, 1080) > crushReduction(2160, 720)
+  && crushReduction(2160, 1080) === 1);
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

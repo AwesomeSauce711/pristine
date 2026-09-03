@@ -99,6 +99,25 @@ interface Props {
  */
 const PHONE_SCREEN_PX = 1080;
 
+/**
+ * How much smaller the crushed side is drawn than the clean one, as a fraction.
+ *
+ * Relative to the SCREEN, not the source: nobody watches a 4K file at 4K on a
+ * phone. Both versions land on a screen about 1080 pixels across, so the real
+ * comparison is the delivered rung stretched to that against a source that
+ * already fills it. And only ever delivered-against-clean: a 720p source
+ * delivered at 720p loses nothing, so a source at or below the rung is drawn
+ * at 1 -- pretending otherwise would be a lie in our own favour.
+ *
+ * Exported so it can be pinned by a test; the landing page and the tool page
+ * both draw with it.
+ */
+export function crushReduction(shortEdge: number, targetShortEdge: number, screenPx = PHONE_SCREEN_PX): number {
+  const delivered = Math.min(shortEdge, targetShortEdge);
+  const clean = Math.min(shortEdge, screenPx);
+  return Math.min(1, delivered / clean);
+}
+
 /*
  * The look of a re-encode on the crushed side — a little less colour, a little
  * less contrast — applied by the 2D context as it draws, never by CSS on the
@@ -198,13 +217,7 @@ export default function PreviewCompare({
        * Capped at 1: a source already below the rung is not made worse by it,
        * and pretending otherwise would be a lie in our own favour.
        */
-      const delivered = Math.min(shortEdge, targetShortEdge);
-      // What the CLEAN side manages on the same screen. Comparing against the
-      // screen alone was still wrong: a 720p source delivered at 720p loses
-      // nothing, but dividing by 1080 claimed a 1.5x stretch that both halves
-      // would suffer equally. The difference is only ever delivered-vs-clean.
-      const clean = Math.min(shortEdge, PHONE_SCREEN_PX);
-      const reduction = Math.min(1, delivered / clean);
+      const reduction = crushReduction(shortEdge, targetShortEdge);
 
       // Work in device pixels, or a 2x screen hides the difference entirely;
       // but no more than 2x on a lite device, where every pixel is a copy.

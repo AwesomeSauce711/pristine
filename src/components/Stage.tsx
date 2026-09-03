@@ -81,7 +81,7 @@ interface Props {
   t: number;
   /** The phone at its widest, bezel to bezel, px. It narrows with the column. */
   width?: number;
-  /** The screen — a CompareSlider or a PreviewCompare — and whatever it puts under itself. */
+  /** The screen — a PreviewCompare or a PreviewCompare — and whatever it puts under itself. */
   children: ReactNode;
   className?: string;
   /** Draw the hand holding the phone. */

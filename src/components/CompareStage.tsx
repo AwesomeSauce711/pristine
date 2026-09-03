@@ -1,84 +1,100 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import CompareSlider from '@/components/CompareSlider';
-import Descriptor3D from '@/components/Descriptor3D';
+import PreviewCompare from '@/components/PreviewCompare';
 import Stage from '@/components/Stage';
-import { randomPristine } from '@/lib/engagement';
+import { CRUSHED_STATS, PRISTINE_STATS, randomPristine } from '@/lib/engagement';
 
 /*
- * The comparison, staged.
+ * The comparison on the landing page IS the tool page's preview.
  *
- * The same two clips as before — what TikTok served for a patched upload and
- * for an unpatched one — in the same slider with the same sync. Everything
- * around them is the Stage's: the phone with real thickness in a real hand,
- * turning with the reader across the whole page (or with the phone in their
- * hand, on a phone), the four engagement figures standing in the air above the
- * screen, the pool of light under it. This file only knows two things: the
- * split, which the slider reports and which becomes `t` for everything that
- * lights; and the two measured-figure badges, which it hands to the Stage as
- * plates to float over the screen's top corners.
+ * It used to be its own component: two real TikTok renditions welded into one
+ * file, with a canvas reading both halves out of it. Every version of that was
+ * fragile on a phone in a way the tool page's preview -- a visible <video> with
+ * a small crushed copy drawn beside it -- never was, and the reader said so:
+ * "it works with the file I upload". So this is that component, fed a bundled
+ * clip, with the same phone, rail, headers and split it has on the tool page.
  *
- * The split follows the reader (CompareSlider's `motionDrive`): the pointer's
- * place across the page on a desktop, the roll of the phone on a phone. Left
- * widens the compressed side, right widens the reader's own video. A drag or
- * a keyboard step wins while it is happening.
- *
- * THE BADGES
- * The figures are the delivered ones — what TikTok actually served — and are
- * exactly the words the flat badges carried in the screen's corners. They keep
- * their rule: each fades as the divider runs over its corner. The Pristine
- * plate lights once the split has crossed to its side, at the same moment the
- * holograms pop and the chime plays.
+ * WHAT THE CLIP IS
+ * The right half is exactly what TikTok served for a patched upload --
+ * 2160x3840, 60fps, 41.7 Mbps -- re-encoded to 1080x1920 for the web. The
+ * crush is computed against the screen (see crushReduction), so a 1080-wide
+ * file draws the identical 720/1080 reduction a 4K upload does: the left half
+ * is that same footage at TikTok's measured delivery for an ordinary upload.
+ * The caption says so. The figures in the screen's headers are the measured
+ * ones; the engagement numbers are illustrative and labelled.
  */
 
+/* The phone the tool page draws, so the two previews are the same object. */
+const PREVIEW_WIDTH = 336;
+const PREVIEW_ASPECT = 19.5 / 9;
+
+/* A small deterministic PRNG (mulberry32), so server and client draw alike. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* What TikTok served for the patched upload the clip is cut from. */
+const SERVED = { width: 2160, height: 3840, fps: 60, bitrateMbps: 41.72 };
+
 interface Props {
-  /** One file, both renditions side by side. See CompareSlider. */
+  /** The pristine rendition, re-encoded for the web. */
   src: string;
-  poster: string;
   /** Draw the hand holding the phone. */
   hand?: boolean;
 }
 
-export default function CompareStage({ src, poster, hand = true }: Props) {
+export default function CompareStage({ src, hand = true }: Props) {
   const [pos, setPos] = useState(50);
   const onPositionChange = useCallback((p: number) => setPos(p), []);
-  /* A fresh set of million-scale figures per visit. Safe to draw at random
-   * here: the holograms that show them mount only once the stage is in view,
-   * after hydration, so the server never renders a number that could differ. */
-  const [pristine] = useState(() => randomPristine());
-  /* 0 at the crushed end of the travel (pos 100), 1 at the Pristine end
-   * (pos 0): the counts and the split start and stop together, so at the
-   * crushed end the counts read the crushed post (19 likes) exactly. */
+  /* The million-scale figures, drawn from a FIXED seed.
+   *
+   * They used to be random per visit, which was safe while the only thing
+   * showing them was the holograms, mounted after hydration. The preview's
+   * engagement rail is server-rendered, so a random draw put one set of
+   * numbers in the HTML and a different set on the client -- a hydration
+   * mismatch (React #418) on every landing. The same seed on both sides makes
+   * them agree; the tool page still draws a fresh set per file. */
+  const [pristine] = useState(() => randomPristine(seeded(0x9e3779b9)));
+  /* 0 at the crushed end of the travel (pos 100), 1 at the Pristine end. */
   const t = Math.min(1, Math.max(0, 1 - pos / 100));
 
   return (
-    <Stage
-      t={t}
-      hand={hand}
-      pristine={pristine}
-      illustrative
-      descriptors={
-        <>
-          <Descriptor3D side="left" visible={pos > 22}>
-            <div className="legend text-[9px] text-white/45">Uploaded normally</div>
-            <div className="tabular text-[11px] font-medium text-white/90">720×1280 · 30fps</div>
-            <div className="tabular text-[10px] text-white/50">2.90 Mbps</div>
-          </Descriptor3D>
-          <Descriptor3D side="right" lit={t > 0.5} visible={pos < 78}>
-            <div className="legend text-[9px] text-accent-soft">With Pristine</div>
-            <div className="tabular text-[11px] font-medium text-white/90">2160×3840 · 60fps</div>
-            <div className="tabular text-[10px] text-white/50">41.72 Mbps</div>
-          </Descriptor3D>
-        </>
-      }
-    >
-      <CompareSlider
-        src={src}
-        poster={poster}
-        motionDrive
-        onPositionChange={onPositionChange}
-      />
-    </Stage>
+    <figure className="w-full">
+      <Stage
+        t={t}
+        hand={hand}
+        aspect={PREVIEW_ASPECT}
+        width={PREVIEW_WIDTH}
+        pristine={pristine}
+        illustrative
+      >
+        <PreviewCompare
+          src={src}
+          pristine={pristine}
+          width={SERVED.width}
+          height={SERVED.height}
+          fps={SERVED.fps}
+          bitrateMbps={SERVED.bitrateMbps}
+          crushedLikes={CRUSHED_STATS.likes}
+          pristineLikes={PRISTINE_STATS.likes}
+          onPositionChange={onPositionChange}
+          motionDrive
+        />
+      </Stage>
+      <figcaption className="mx-auto mt-9 max-w-[560px] text-center text-[12.5px] leading-relaxed text-dim">
+        The right half is exactly what TikTok served for a patched upload: 2160×3840, 60fps,
+        41.7 Mbps. The left half is that same footage drawn at TikTok&rsquo;s measured delivery for
+        an ordinary upload, 720×1280 at 30fps — the same preview the tool shows for your own
+        video. Engagement numbers are illustrative.
+      </figcaption>
+    </figure>
   );
 }

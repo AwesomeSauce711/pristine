@@ -50,7 +50,7 @@ export function tiltFor(m: Motion): { rx: number; ry: number } {
  * (percent from the left where the Pristine side begins): rolled fully left
  * is all crushed (100), rolled fully right is all Pristine (0). A pointer is
  * not mapped here — the sliders put the divider where the pointer is,
- * measured across the screen itself (CompareSlider, PreviewCompare).
+ * measured across the screen itself (PreviewCompare, PreviewCompare).
  */
 export function splitFor(x: number): number {
   return Math.min(100, Math.max(0, 50 - x * 50));

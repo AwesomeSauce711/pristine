@@ -8,7 +8,7 @@ import PricingTable from '@/components/PricingTable';
 import SceneNav from '@/components/SceneNav';
 import SceneStage from '@/components/Stage';
 import Starfield from '@/components/fx/Starfield';
-import { PRISTINE_ENGAGEMENT, randomPristine } from '@/lib/engagement';
+import { CRUSHED_STATS, PRISTINE_ENGAGEMENT, PRISTINE_STATS, randomPristine } from '@/lib/engagement';
 import DropMorph from '@/components/DropMorph';
 import Link from 'next/link';
 
@@ -75,8 +75,6 @@ interface Receipt {
 }
 
 /* Illustrative engagement, labelled as such wherever it is shown. */
-const CRUSHED_STATS = { likes: 19, comments: 2, bookmarks: 1, shares: 0 };
-const PRISTINE_STATS = { likes: 1_200_000, comments: 6_497, bookmarks: 41_800, shares: 18_300 };
 
 /*
  * The preview's screen is 9:19.5 (a phone), and the stage sizes the phone's
