@@ -1,5 +1,5 @@
 import { methodStatus } from '@/lib/method-status';
-import { refillPriceId, verifiedPriceIdForPlan, verifiedRefillPriceId } from '@/lib/billing/stripe';
+import { priceConfigProblems, refillPriceId, verifiedPriceIdForPlan, verifiedRefillPriceId } from '@/lib/billing/stripe';
 import { PLAN_ORDER } from '@/lib/plans';
 
 /*
@@ -12,6 +12,13 @@ import { PLAN_ORDER } from '@/lib/plans';
  */
 async function pricesVerdict(): Promise<'ok' | 'mismatch' | 'unavailable'> {
   if (!process.env.STRIPE_SECRET_KEY) return 'unavailable';
+  /* A price id filed under the wrong plan gives that customer the wrong
+   * daily cap and the wrong plan name, and nothing else would ever say so. */
+  const misconfigured = priceConfigProblems();
+  if (misconfigured.length) {
+    console.error(`[status] price configuration: ${misconfigured.join('; ')}`);
+    return 'mismatch';
+  }
   try {
     for (const id of PLAN_ORDER) await verifiedPriceIdForPlan(id);
     if (refillPriceId()) await verifiedRefillPriceId();

@@ -31,13 +31,78 @@ export function stripe(): Stripe {
   return cached;
 }
 
-/** Map a Stripe Price id back to one of our plans. */
+/*
+ * A RETIRED PRICE STILL HAS TO MAP TO ITS PLAN.
+ *
+ * Stripe Prices are immutable, so changing what a plan costs means creating a
+ * new Price and pointing STRIPE_PRICE_<PLAN> at it. Every subscription sold
+ * before that keeps billing on the OLD Price for as long as it lives, and
+ * planForPriceId is how a subscription is recognised at all: an id that
+ * matches nothing maps to no plan, which computeEntitlement reads as no
+ * access. Swapping the variable on its own would therefore sign every
+ * existing customer out of the thing they are still paying for, on the next
+ * webhook that touched their row.
+ *
+ * So each plan may also carry the Price ids it used to have, comma-separated,
+ * in STRIPE_PRICE_<PLAN>_LEGACY. They are RECOGNISED, never SOLD: a new
+ * checkout goes through priceIdForPlan, which only ever returns the current
+ * one. See docs/changing-prices.md.
+ */
+const legacyPriceIds = (id: PlanId): string[] =>
+  (process.env[`${PLANS[id].priceEnv}_LEGACY`] ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+/** Map a Stripe Price id back to one of our plans, current or retired. */
 export function planForPriceId(priceId: string | null | undefined): PlanId | null {
   if (!priceId) return null;
+  /* Every CURRENT price first, so a stale legacy entry can never shadow the
+   * plan a price is actually being sold as today. */
   for (const id of PLAN_ORDER) {
     if (process.env[PLANS[id].priceEnv] === priceId) return id;
   }
+  for (const id of PLAN_ORDER) {
+    if (legacyPriceIds(id).includes(priceId)) return id;
+  }
   return null;
+}
+
+/**
+ * Ways the price configuration could quietly misfile a paying customer.
+ *
+ * The lookup above takes the first plan that matches, so an id listed under
+ * two plans resolves to whichever comes first in PLAN_ORDER -- and a customer
+ * on it gets that plan's daily cap and that plan's name on their account
+ * page, neither of which is what they bought. A paste error is the likely
+ * cause and it is silent, so /api/status reports it and the canary fails on
+ * it. Empty is healthy.
+ */
+export function priceConfigProblems(): string[] {
+  const problems: string[] = [];
+  const seen = new Map<string, PlanId>();
+
+  for (const id of PLAN_ORDER) {
+    const current = process.env[PLANS[id].priceEnv];
+    if (current) seen.set(current, id);
+  }
+  for (const id of PLAN_ORDER) {
+    for (const legacy of legacyPriceIds(id)) {
+      const owner = seen.get(legacy);
+      if (owner && owner !== id) {
+        problems.push(
+          `${PLANS[id].priceEnv}_LEGACY lists ${legacy}, which is already the ${PLANS[owner].name} price`,
+        );
+      } else if (owner === id) {
+        /* Harmless -- the current price wins on the first pass -- but it
+         * means the list was not tidied when the price last changed. */
+        problems.push(`${PLANS[id].priceEnv}_LEGACY lists ${legacy}, which is the CURRENT ${PLANS[id].name} price`);
+      } else {
+        seen.set(legacy, id);
+      }
+    }
+  }
+  return problems;
 }
 
 export function priceIdForPlan(id: PlanId): string {

@@ -18,6 +18,7 @@ import {
 } from '../src/lib/billing/entitlement';
 import { PLANS, disclosure } from '../src/lib/plans';
 import { isScheduledToEnd } from '../src/lib/billing/sync';
+import { planForPriceId, priceConfigProblems, priceIdForPlan } from '../src/lib/billing/stripe';
 
 let pass = 0;
 let fail = 0;
@@ -229,6 +230,54 @@ ok('a subscription with no tier grants nothing',
 
   ok('one that has already ended is not "scheduled to" end',
     !isScheduledToEnd(sub({ cancel_at_period_end: true, cancel_at: 1, ended_at: 1788304802 })));
+}
+
+/* ---- retired prices still name their plan ------------------------------- */
+
+/*
+ * The failure this guards against is silent and total: change what a plan
+ * costs, point the variable at the new Stripe Price, and every subscription
+ * still billing on the old one stops matching a plan. No plan means no tier,
+ * and no tier means no access -- for people who are still paying.
+ */
+{
+  const env = process.env;
+  const saved = {
+    week: env.STRIPE_PRICE_WEEK, month: env.STRIPE_PRICE_MONTH, year: env.STRIPE_PRICE_YEAR,
+    weekOld: env.STRIPE_PRICE_WEEK_LEGACY, monthOld: env.STRIPE_PRICE_MONTH_LEGACY, yearOld: env.STRIPE_PRICE_YEAR_LEGACY,
+  };
+  env.STRIPE_PRICE_WEEK = 'price_week_now';
+  env.STRIPE_PRICE_MONTH = 'price_month_now';
+  env.STRIPE_PRICE_YEAR = 'price_year_now';
+  env.STRIPE_PRICE_WEEK_LEGACY = '';
+  env.STRIPE_PRICE_MONTH_LEGACY = ' price_month_2025 , price_month_2024 ';
+  env.STRIPE_PRICE_YEAR_LEGACY = '';
+
+  ok('the current price names its plan', planForPriceId('price_month_now') === 'month');
+  ok('a retired price still names its plan', planForPriceId('price_month_2025') === 'month');
+  ok('a second retired price does too, and the list tolerates spaces',
+    planForPriceId('price_month_2024') === 'month');
+  ok('a price we have never sold names nothing', planForPriceId('price_someone_elses') === null);
+  ok('no price id at all names nothing', planForPriceId(null) === null && planForPriceId('') === null);
+
+  /* A retired price must never be SOLD: a new checkout takes the current one. */
+  ok('a new sale uses the current price, never a retired one', priceIdForPlan('month') === 'price_month_now');
+
+  ok('a tidy configuration reports no problems', priceConfigProblems().length === 0);
+
+  env.STRIPE_PRICE_WEEK_LEGACY = 'price_month_now';
+  ok("another plan's CURRENT price in a legacy list is reported",
+    priceConfigProblems().some((p) => p.includes('Monthly')));
+
+  env.STRIPE_PRICE_WEEK_LEGACY = 'price_month_2025';
+  ok('the same retired price under two plans is reported', priceConfigProblems().length === 1);
+  /* First match wins, so the misfiled one would have silently become weekly. */
+  ok('...which is exactly the case that would misfile a paying customer',
+    planForPriceId('price_month_2025') === 'week');
+
+  env.STRIPE_PRICE_WEEK = saved.week; env.STRIPE_PRICE_MONTH = saved.month; env.STRIPE_PRICE_YEAR = saved.year;
+  env.STRIPE_PRICE_WEEK_LEGACY = saved.weekOld; env.STRIPE_PRICE_MONTH_LEGACY = saved.monthOld;
+  env.STRIPE_PRICE_YEAR_LEGACY = saved.yearOld;
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
