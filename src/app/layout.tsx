@@ -60,6 +60,18 @@ export const metadata: Metadata = {
     description:
       'TikTok re-encodes your upload to 720p. Pristine makes sure it is served exactly as you made it.',
     type: 'website',
+    /* The link preview is the hero itself, captured from the live page: the
+     * galaxy, the ribbons, the rising field and the headline in its own
+     * type. A rendered card could only approximate that. Regenerate it after
+     * a hero redesign (headless Chrome at 1200x630, nav cropped). */
+    images: [{ url: '/og.jpg', width: 1200, height: 630, alt: 'TikTok compresses your video. Pristine stops it.' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Pristine 4K — stop TikTok compressing your video',
+    description:
+      'TikTok re-encodes your upload to 720p. Pristine makes sure it is served exactly as you made it.',
+    images: ['/og.jpg'],
   },
   robots: { index: true, follow: true },
 };
