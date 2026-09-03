@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sceneIsLite } from '@/lib/scene-tier';
 import EngagementRail from '@/components/EngagementRail';
 import { play } from '@/lib/sound';
 import { splitFor, subscribeMotion, type Motion } from '@/lib/stage-motion';
@@ -106,10 +107,10 @@ const PHONE_SCREEN_PX = 1080;
  * 720-line downscale therefore UNDERSTATES it -- on a phone-sized mockup the
  * result was indistinguishable from the source, which is not what a viewer
  * of the real rendition sees. This factor is the encoder's share: the crushed
- * side is rendered at three quarters of the rung's own resolution, then drawn
+ * side is rendered at three fifths of the rung's own resolution, then drawn
  * back up. Still only resolution -- no colour, contrast or brightness change.
  */
-const BITRATE_SOFTNESS = 0.75;
+const BITRATE_SOFTNESS = 0.6;
 /* Shown when the reader's own file will not preview. No audio; it is a picture. */
 const PLACEHOLDER_SRC = '/demo/pristine.mp4';
 /* How long a file gets to show its first frame before the stand-in steps in. */
@@ -199,17 +200,48 @@ export default function PreviewCompare({
    * has come clearly back. The rail's pop lands on the same crossing.
    */
   const revealArmed = useRef(pos >= REVEAL_AT);
+  /*
+   * WHY THE SPLIT IS NOT REACT STATE ON THE WAY THROUGH
+   * A drag on a phone fires pointer events at up to 120 a second, and the
+   * gyroscope not far behind. Each one used to set state here, re-render this
+   * component, and report to the parent -- which re-rendered the whole stage:
+   * rail, holograms, plates, phone. That was the drag lag. Now the handle, the
+   * divider and the renderer follow every event imperatively (a CSS variable
+   * and a scissor), and React and the parent hear about the split at most
+   * thirty times a second, which is as often as anything they draw can change
+   * visibly.
+   */
+  const frameHandle = useRef(0);
+  const lastReport = useRef(0);
   const commitPos = useCallback((next: number) => {
-    /* The split is a scissor in the renderer; a paused clip still follows the handle. */
     posRef.current = next;
-    drawRef.current?.();
-    setPos(next);
-    reportRef.current?.(next);
-    if (next >= REARM_ABOVE) revealArmed.current = true;
-    if (revealArmed.current && next < REVEAL_AT) {
-      revealArmed.current = false;
-      play('reveal');
-    }
+    wrapRef.current?.style.setProperty('--split', `${next}%`);
+    if (frameHandle.current) return;
+    frameHandle.current = requestAnimationFrame(() => {
+      frameHandle.current = 0;
+      const p = posRef.current;
+      drawRef.current?.();
+      const now = performance.now();
+      if (now - lastReport.current >= 33) {
+        lastReport.current = now;
+        setPos(p);
+        reportRef.current?.(p);
+        if (p >= REARM_ABOVE) revealArmed.current = true;
+        if (revealArmed.current && p < REVEAL_AT) {
+          revealArmed.current = false;
+          play('reveal');
+        }
+      } else {
+        /* Too soon for React; make sure the last position still lands. */
+        frameHandle.current = requestAnimationFrame(() => {
+          frameHandle.current = 0;
+          const q = posRef.current;
+          lastReport.current = performance.now();
+          setPos(q);
+          reportRef.current?.(q);
+        });
+      }
+    });
   }, []);
   /* The starting split, once, so a parent that renders from it is not stale. */
   useEffect(() => { reportRef.current?.(posRef.current); }, []);
@@ -328,6 +360,17 @@ export default function PreviewCompare({
     const wrap = wrapRef.current;
     if (!v || !c || !wrap) return;
     const isFallback = effectiveSrc === PLACEHOLDER_SRC;
+    /*
+     * THE PHONE TIER. On a lite device the clean half is the video element
+     * itself again, and the canvas carries only the crushed half. The phone's
+     * own compositor is the sharpest and cheapest 4K path it has -- native
+     * resolution, native rate, no upload -- and the canvas then costs one
+     * upload per crushed frame, at the rung's own 30fps. The price is that the
+     * crushed half can sit up to a frame behind the clean one, which on a
+     * hand-held mockup is far less visible than the stutter of doing it the
+     * desktop way. Desktop keeps both halves on the canvas, frame-exact.
+     */
+    const lite = sceneIsLite();
 
     const gl2 = c.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
     const gl = (gl2 ?? c.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })) as WebGLRenderingContext | null;
@@ -357,7 +400,19 @@ export default function PreviewCompare({
     if (gl) {
       const vs = `attribute vec2 a; varying vec2 uv; uniform vec2 s; uniform vec2 o;
         void main(){ uv = (a * 0.5 + 0.5) * s + o; gl_Position = vec4(a, 0.0, 1.0); }`;
-      const fs = `precision mediump float; varying vec2 uv; uniform sampler2D t;
+      /*
+       * highp where the GPU has it. Fragment shaders default to mediump, and
+       * on mobile GPUs mediump is a 10-bit mantissa -- not enough to address
+       * a 3840-texel texture accurately, so the sample position wanders and a
+       * 4K frame comes out soft and slightly blocky. Desktop GPUs run mediump
+       * at full precision, which is why the same code looked right on a PC.
+       */
+      const fs = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 uv; uniform sampler2D t;
         void main(){ gl_FragColor = texture2D(t, uv); }`;
       const sh = (type: number, src: string) => {
         const h = gl.createShader(type)!;
@@ -445,12 +500,20 @@ export default function PreviewCompare({
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, tex);
       }
-      /* Clean, the whole screen. */
       gl.viewport(0, 0, W, H);
       gl.disable(gl.SCISSOR_TEST);
-      gl.uniform2f(uScale, uvScale[0], uvScale[1]);
-      gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (lite) {
+        /* The clean half is the video underneath: leave the canvas clear
+         * everywhere the crushed half is not, or stale crushed pixels stay
+         * behind when the handle moves right. */
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      } else {
+        /* Clean, the whole screen. */
+        gl.uniform2f(uScale, uvScale[0], uvScale[1]);
+        gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
       /* Crushed, left of the handle. */
       const split = Math.round((W * Math.max(0, Math.min(100, posRef.current))) / 100);
       if (split > 0) {
@@ -468,7 +531,14 @@ export default function PreviewCompare({
     };
     drawRef.current = draw;
 
-    const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
+    /* On a lite device the crushed half updates at the rung's own 30fps:
+     * every other presented frame, half the uploads. */
+    let frameNo = 0;
+    const onFrame = () => {
+      frameNo++;
+      if (!lite || frameNo % 2 === 0) draw();
+      vfc = rvfc.requestVideoFrameCallback!(onFrame);
+    };
     const tick = () => { draw(); raf = requestAnimationFrame(tick); };
 
     /*
@@ -622,9 +692,9 @@ export default function PreviewCompare({
               ends so it can always be dragged back ---- */}
       <div
         className="pointer-events-none absolute inset-y-0 -ml-px w-px bg-white/85 shadow-[0_0_12px_rgba(255,255,255,0.5)] transition-opacity duration-150"
-        style={{ left: `${pos}%`, opacity: pos < 0.75 || pos > 99.25 ? 0 : 1 }}
+        style={{ left: 'var(--split, 50%)', opacity: pos < 0.75 || pos > 99.25 ? 0 : 1 }}
       />
-      <div className="pointer-events-none absolute inset-y-0" style={{ left: `clamp(22px, ${pos}%, calc(100% - 22px))` }}>
+      <div className="pointer-events-none absolute inset-y-0" style={{ left: 'clamp(22px, var(--split, 50%), calc(100% - 22px))' }}>
         <div className="absolute top-1/2 -left-[22px] grid h-11 w-11 -translate-y-1/2 place-items-center
                         rounded-full border border-white/30 bg-white/15 text-white
                         shadow-[0_10px_30px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.3)]">
