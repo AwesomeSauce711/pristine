@@ -16,8 +16,9 @@ import { CRUSHED_STATS, PRISTINE_STATS, randomPristine } from '@/lib/engagement'
  * clip, with the same phone, rail, headers and split it has on the tool page.
  *
  * WHAT THE CLIP IS
- * The right half is exactly what TikTok served for a patched upload --
- * 2160x3840, 60fps, 41.7 Mbps -- re-encoded to 1080x1920 for the web. The
+ * The right half is a Pristine-patched 4K60 upload -- 2160x3840, 60fps,
+ * 21.9 Mbps, the file TikTok serves back byte for byte -- cut from its 4K
+ * section and re-encoded to 1080x1920 for the web. The
  * crush is computed against the screen (see crushReduction), so a 1080-wide
  * file draws the identical 720/1080 reduction a 4K upload does: the left half
  * is that same footage at TikTok's measured delivery for an ordinary upload.
@@ -42,7 +43,7 @@ function seeded(seed: number): () => number {
 }
 
 /* What TikTok served for the patched upload the clip is cut from. */
-const SERVED = { width: 2160, height: 3840, fps: 60, bitrateMbps: 41.72 };
+const SERVED = { width: 2160, height: 3840, fps: 60, bitrateMbps: 21.9 };
 
 interface Props {
   /** The pristine rendition, re-encoded for the web. */
@@ -90,10 +91,10 @@ export default function CompareStage({ src, hand = true }: Props) {
         />
       </Stage>
       <figcaption className="mx-auto mt-9 max-w-[560px] text-center text-[12.5px] leading-relaxed text-dim">
-        The right half is exactly what TikTok served for a patched upload: 2160×3840, 60fps,
-        41.7 Mbps. The left half is that same footage drawn at TikTok&rsquo;s measured delivery for
-        an ordinary upload, 720×1280 at 30fps — the same preview the tool shows for your own
-        video. Engagement numbers are illustrative.
+        The right half is a Pristine-patched 4K60 upload — 2160×3840, 60fps, 21.9 Mbps — the
+        file TikTok serves back byte for byte. The left half is that same footage drawn at
+        TikTok&rsquo;s measured delivery for an ordinary upload, 720×1280 at 2.9 Mbps — the same
+        preview the tool shows for your own video. Engagement numbers are illustrative.
       </figcaption>
     </figure>
   );

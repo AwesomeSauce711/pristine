@@ -361,14 +361,16 @@ export default function PreviewCompare({
     if (!v || !c || !wrap) return;
     const isFallback = effectiveSrc === PLACEHOLDER_SRC;
     /*
-     * THE PHONE TIER. On a lite device the clean half is the video element
-     * itself again, and the canvas carries only the crushed half. The phone's
-     * own compositor is the sharpest and cheapest 4K path it has -- native
-     * resolution, native rate, no upload -- and the canvas then costs one
-     * upload per crushed frame, at the rung's own 30fps. The price is that the
-     * crushed half can sit up to a frame behind the clean one, which on a
-     * hand-held mockup is far less visible than the stutter of doing it the
-     * desktop way. Desktop keeps both halves on the canvas, frame-exact.
+     * BOTH HALVES ON THE CANVAS, ON EVERY DEVICE.
+     *
+     * A phone tier briefly left the clean half as the native video element
+     * with only the crushed half drawn, updated every other frame: cheaper,
+     * and the crushed half sat up to a frame behind. It was noticed, and sync
+     * has been the one property that must not give. So the phone draws both
+     * halves from the one uploaded frame like the desktop does; what it saves
+     * instead is fill: the canvas is capped at 2x on a lite device, where a 3x
+     * screen would otherwise ask for more than twice the pixels for a picture
+     * this size to no visible gain.
      */
     const lite = sceneIsLite();
 
@@ -453,7 +455,7 @@ varying vec2 uv; uniform sampler2D t;
     const size = () => {
       if (!v.videoWidth) return;
       const r = wrap.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const dpr = Math.min(window.devicePixelRatio || 1, lite ? 2 : 3);
       let w = Math.max(16, Math.round((r.width || wrap.clientWidth || 300) * dpr));
       let h = Math.max(16, Math.round((r.height || wrap.clientHeight || 650) * dpr));
       /* Bounded, so a 4K monitor at 3x does not ask for a 12-megapixel canvas. */
@@ -500,20 +502,12 @@ varying vec2 uv; uniform sampler2D t;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, tex);
       }
+      /* Clean, the whole screen. */
       gl.viewport(0, 0, W, H);
       gl.disable(gl.SCISSOR_TEST);
-      if (lite) {
-        /* The clean half is the video underneath: leave the canvas clear
-         * everywhere the crushed half is not, or stale crushed pixels stay
-         * behind when the handle moves right. */
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-      } else {
-        /* Clean, the whole screen. */
-        gl.uniform2f(uScale, uvScale[0], uvScale[1]);
-        gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      }
+      gl.uniform2f(uScale, uvScale[0], uvScale[1]);
+      gl.uniform2f(uOffset, uvOffset[0], uvOffset[1]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* Crushed, left of the handle. */
       const split = Math.round((W * Math.max(0, Math.min(100, posRef.current))) / 100);
       if (split > 0) {
@@ -531,14 +525,7 @@ varying vec2 uv; uniform sampler2D t;
     };
     drawRef.current = draw;
 
-    /* On a lite device the crushed half updates at the rung's own 30fps:
-     * every other presented frame, half the uploads. */
-    let frameNo = 0;
-    const onFrame = () => {
-      frameNo++;
-      if (!lite || frameNo % 2 === 0) draw();
-      vfc = rvfc.requestVideoFrameCallback!(onFrame);
-    };
+    const onFrame = () => { draw(); vfc = rvfc.requestVideoFrameCallback!(onFrame); };
     const tick = () => { draw(); raf = requestAnimationFrame(tick); };
 
     /*
