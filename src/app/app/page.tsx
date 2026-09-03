@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Plate3D from '@/components/Plate3D';
@@ -863,9 +864,13 @@ export default function AppPage() {
                     * download button said no and nothing visible said why, or
                     * offered the way round it. A dialog is seen wherever the
                     * page is scrolled to. The offer and the countdown are the
-                    * same words as before.
+                    * same words as before. Rendered through a portal at the
+                    * document root: inside the tilting plate, a fixed element
+                    * is positioned against the plate (a transformed ancestor),
+                    * which put the dialog at the plate's foot with its button
+                    * clipped off.
                     */}
-                  {quotaHit && (
+                  {quotaHit && createPortal(
                     <div
                       role="dialog"
                       aria-modal="true"
@@ -915,7 +920,8 @@ export default function AppPage() {
                           </>
                         )}
                       </div>
-                    </div>
+                    </div>,
+                    document.body,
                   )}
 
                   {/* The work, shown: a step label and a bar that fills over the hold. */}
