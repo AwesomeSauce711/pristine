@@ -64,6 +64,10 @@ database.
    |---|---|
    | `CANARY_ORIGIN` | `https://pristine4k.com` |
    | `DATABASE_URL` | reference the Postgres service |
+   | `RESEND_API_KEY` | same value as the web service (the annual notice is an email) |
+   | `EMAIL_FROM` | same as the web service |
+   | `NEXT_PUBLIC_ORIGIN` | `https://pristine4k.com` (the link in the notice) |
+   | `STRIPE_PRICE_WEEK`, `STRIPE_PRICE_MONTH`, `STRIPE_PRICE_YEAR` | same as the web service (to tell which plan a subscription is) |
 
    `CANARY_ORIGIN` is deliberately not `NEXT_PUBLIC_ORIGIN`: that variable is
    whatever the local environment points at, and a canary that cheerfully
@@ -103,7 +107,8 @@ npm run canary
 31 days before the plan renews, with the date, the amount and how to cancel.
 That notice is required by law for subscriptions with a term of a year or
 more (California and several other states); no other plan gets a reminder.
-The cron service should run it daily, after the canary:
+The cron service runs it daily after the canary; `railway.canary.json` already
+sets the start command to:
 
     npm run canary && npm run renewal:notices
 

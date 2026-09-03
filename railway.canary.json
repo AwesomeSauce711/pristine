@@ -5,7 +5,7 @@
     "buildCommand": "npm ci --include=dev"
   },
   "deploy": {
-    "startCommand": "npm run canary",
+    "startCommand": "npm run canary && npm run renewal:notices",
     "cronSchedule": "17 13 * * *",
     "restartPolicyType": "NEVER"
   }
