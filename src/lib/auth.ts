@@ -173,6 +173,43 @@ export const currentUser = cache(async function currentUser(): Promise<SessionUs
   }
 });
 
+/*
+ * SLIDING EXPIRY. A device that keeps coming back should never find itself
+ * signed out on the 181st day. Once a session is thirty days into its life,
+ * the next visit pushes its expiry out by the full term again and re-issues
+ * the same cookie with the new date. Called from a route handler (cookies can
+ * only be set there), which /api/me is, and every page load calls that.
+ */
+const RENEW_AFTER_DAYS = 30;
+export async function renewSession(): Promise<void> {
+  const jar = await cookies();
+  const token = jar.get(COOKIE)?.value;
+  if (!token) return;
+  const rows = await db()
+    .select({ id: schema.sessions.id, expiresAt: schema.sessions.expiresAt })
+    .from(schema.sessions)
+    .where(and(
+      eq(schema.sessions.tokenHash, await sha256Hex(token)),
+      isNull(schema.sessions.revokedAt),
+      gt(schema.sessions.expiresAt, new Date()),
+    ))
+    .limit(1);
+  const current = rows[0];
+  if (!current) return;
+  const left = current.expiresAt.getTime() - Date.now();
+  if (left > (SESSION_DAYS - RENEW_AFTER_DAYS) * 86_400_000) return;
+
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
+  await db().update(schema.sessions).set({ expiresAt }).where(eq(schema.sessions.id, current.id));
+  jar.set(COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    expires: expiresAt,
+  });
+}
+
 export async function signOut(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value;

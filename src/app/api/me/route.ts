@@ -1,3 +1,4 @@
+import { renewSession } from '@/lib/auth';
 import { devUnlockAvailable } from '@/lib/dev-access';
 import { resolveAccess } from '@/lib/entitlement';
 import { clientIp, limit, tooMany } from '@/lib/ratelimit';
@@ -17,6 +18,10 @@ export async function GET(req: Request) {
   const rate = await limit(`me:ip:${clientIp(req)}`, 120, 60);
   if (!rate.ok) return tooMany(rate);
   const access = await resolveAccess();
+  if (access.user) {
+    /* Never let a renewal hiccup break the page the session is for. */
+    try { await renewSession(); } catch (e) { console.error('[me] session renewal failed', e); }
+  }
 
   return Response.json(
     {

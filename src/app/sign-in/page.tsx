@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import Plate3D from '@/components/Plate3D';
 
@@ -35,9 +35,20 @@ function SignInForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [devCode, setDevCode] = useState('');
+  const submitting = useRef(false);
 
-  async function requestCode(e: React.FormEvent) {
-    e.preventDefault();
+  /* The address this device signed in with last time, offered again. An
+   * address is not a secret, and typing it on a phone is the slowest step. */
+  useEffect(() => {
+    let last = '';
+    try { last = localStorage.getItem('pristine:email') ?? ''; } catch { /* storage off */ }
+    if (!last) return;
+    const t = setTimeout(() => setEmail((cur) => cur || last), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function requestCode(e?: React.FormEvent) {
+    e?.preventDefault();
     setBusy(true);
     setError('');
     try {
@@ -51,6 +62,7 @@ function SignInForm() {
         setError(data.message ?? 'Could not send a code. Please try again.');
         return;
       }
+      try { localStorage.setItem('pristine:email', email); } catch { /* storage off */ }
       if (data.devCode) setDevCode(data.devCode);
       setStep('code');
     } catch {
@@ -60,8 +72,10 @@ function SignInForm() {
     }
   }
 
-  async function verify(e: React.FormEvent) {
-    e.preventDefault();
+  async function verify(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
@@ -80,20 +94,27 @@ function SignInForm() {
     } catch {
       setError('Could not reach the server. Please try again.');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
 
+  /* Six digits typed or pasted: go, without a second tap. */
+  useEffect(() => {
+    if (step === 'code' && code.length === 6 && !busy) void verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, step]);
+
   return (
-    <Plate3D depth={10} tilt={1.5} className="p-7 md:p-9">
-      <h1 className="title-3d text-[1.7rem]">
+    <Plate3D depth={10} tilt={1.5} className="w-full p-8 md:p-11">
+      <h1 className="title-3d text-[2rem] md:text-[2.3rem]">
         {step === 'email' ? (forDownload ? 'Sign in to download' : 'Sign in') : 'Check your email'}
       </h1>
-      <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
+      <p className="mt-3 text-[15.5px] leading-relaxed text-muted">
         {step === 'email'
           ? (forDownload
               ? 'Your video is waiting. We email you a six-digit code; then you pick a plan and the download starts on its own.'
-              : 'No password to remember. We email you a six-digit code, and this device stays signed in for six months.')
+              : 'No password to remember. We email you a six-digit code, and this device stays signed in.')
           : <>We sent a code to <span className="text-text">{email}</span>. It expires in ten minutes.</>}
       </p>
 
@@ -107,12 +128,12 @@ function SignInForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            className="field"
+            className="field py-4 text-[17px]"
           />
           <button
             type="submit"
             disabled={busy}
-            className="pill pill-primary w-full disabled:opacity-40"
+            className="pill pill-primary min-h-[52px] w-full text-[12.5px] disabled:opacity-40"
           >
             {busy ? 'Sending…' : 'Email me a code'}
           </button>
@@ -136,12 +157,12 @@ function SignInForm() {
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="000000"
-            className="field tabular text-center text-[24px] tracking-[0.4em]"
+            className="field tabular py-4 text-center text-[30px] tracking-[0.4em]"
           />
           <button
             type="submit"
             disabled={busy || code.length < 6}
-            className="pill pill-primary w-full disabled:opacity-40"
+            className="pill pill-primary min-h-[52px] w-full text-[12.5px] disabled:opacity-40"
           >
             {busy ? 'Checking…' : 'Sign in'}
           </button>
@@ -149,7 +170,7 @@ function SignInForm() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => { setCode(''); setError(''); void requestCode({ preventDefault() {} } as React.FormEvent); }}
+            onClick={() => { setCode(''); setError(''); void requestCode(); }}
             className="w-full py-2 text-[13.5px] text-dim transition hover:text-muted disabled:opacity-40"
           >
             Send a new code
@@ -189,7 +210,9 @@ function SignInForm() {
 export default function SignInPage() {
   return (
     <>
-      <PageShell className="max-w-md">
+      {/* Centred in the viewport, not hung from the top: this is the one page
+          that is nothing but the form. */}
+      <PageShell className="flex min-h-[100svh] max-w-lg items-center">
         <Suspense fallback={null}>
           <SignInForm />
         </Suspense>
