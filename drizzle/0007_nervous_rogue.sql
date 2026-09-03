@@ -1,0 +1,1 @@
+ALTER TABLE "subscriptions" ADD COLUMN "renewal_notice_for" timestamp with time zone;

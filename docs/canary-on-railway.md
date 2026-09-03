@@ -96,3 +96,17 @@ From your machine, against production, any time:
 ```
 npm run canary
 ```
+
+## The annual renewal notice runs on the same schedule
+
+`npm run renewal:notices` emails each Annual subscriber once per term, 15 to
+31 days before the plan renews, with the date, the amount and how to cancel.
+That notice is required by law for subscriptions with a term of a year or
+more (California and several other states); no other plan gets a reminder.
+The cron service should run it daily, after the canary:
+
+    npm run canary && npm run renewal:notices
+
+It needs `DATABASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_ORIGIN`
+and the live `STRIPE_PRICE_*` ids in the service's variables. It is safe to
+run more often than daily: each term is marked when its notice goes out.

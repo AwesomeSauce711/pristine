@@ -145,3 +145,45 @@ export async function sendLoginCode(email: string, code: string, ttlMinutes: num
     `),
   });
 }
+
+/* ------------------------------------------------- the annual notice */
+
+const ORIGIN = (process.env.NEXT_PUBLIC_ORIGIN?.trim().replace(/\/+$/, '')) || 'https://pristine4k.com';
+const dateUtc = (d: Date): string =>
+  d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+/*
+ * The one reminder that is a legal requirement rather than a courtesy: a
+ * subscription with a term of a year or more must be told, between 15 and
+ * 45 days before it renews, that it will renew, on what date, for how much,
+ * and how to cancel (California Bus. & Prof. Code 17602 and the similar
+ * laws of several other states). Sent once per term by
+ * scripts/annual-renewal-notices.mts. No other plan gets a reminder.
+ */
+export async function sendAnnualRenewalNotice(
+  email: string,
+  o: { planName: string; amountCents: number; renewsOn: Date },
+): Promise<void> {
+  const when = dateUtc(o.renewsOn);
+  const amount = `$${(o.amountCents / 100).toFixed(2)}`;
+  await send({
+    to: email,
+    subject: `Your ${COMPANY.tradingName} ${o.planName} plan renews on ${when}`,
+    text:
+      `Your ${o.planName} plan renews automatically on ${when} (UTC) for ${amount}, and every year after ` +
+      `that until you cancel.\n\n` +
+      `To cancel before then, open your account and choose Manage billing; there will be no charge:\n` +
+      `${ORIGIN}/account\n\nNothing to do if you want to keep it.\n`,
+    html: wrap('Your plan renews next month', `
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:#3a3a3f;">
+        Your <strong>${o.planName}</strong> plan renews automatically on <strong>${when}</strong> (UTC)
+        for <strong>${amount}</strong>, and every year after that until you cancel.
+      </p>
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:#3a3a3f;">
+        To cancel before then, open your account and choose <em>Manage billing</em>; there will be no
+        charge. Nothing to do if you want to keep it.
+      </p>
+      <p style="margin:22px 0 0;"><a href="${ORIGIN}/account" style="display:inline-block;padding:11px 18px;background:#111;color:#fff;border-radius:999px;text-decoration:none;font-size:14px;">Open your account</a></p>
+    `),
+  });
+}

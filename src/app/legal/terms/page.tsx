@@ -139,8 +139,7 @@ export default function Terms() {
         <strong>Free trials</strong> are limited to one per person. We may decline a free trial,
         or offer the plan without one, where we identify that a trial has already been used
         &mdash; for example by the same account, the same payment method, or the same person.
-        During a trial you have the same daily limit as the plan you are trying. We send a
-        reminder before a trial converts to a paid plan. If you are not offered a trial you can
+        During a trial you have the same daily limit as the plan you are trying. If you are not offered a trial you can
         still subscribe at the normal price.
       </p>
       <p>

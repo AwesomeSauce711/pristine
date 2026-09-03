@@ -78,8 +78,7 @@ export default function Refunds() {
         period you paid for, and you will not be charged again.
       </p>
       <p>
-        We send a reminder before your free trial converts, and before each weekly renewal, so a
-        charge should never be a surprise. If one is, tell us.
+        If a charge ever surprises you, tell us.
       </p>
 
       <h2>Day top-ups</h2>

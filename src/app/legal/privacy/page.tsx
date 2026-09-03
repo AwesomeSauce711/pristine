@@ -49,7 +49,7 @@ export default function Privacy() {
       <h2>What we do collect</h2>
       <ul>
         <li><strong>Your email address</strong>, so you can sign in and we can send receipts,
-          renewal reminders and service notices.</li>
+          service notices.</li>
         <li><strong>Sign-in and session records</strong> — hashed session tokens, IP address, and
           browser user agent — to keep your account secure and let you sign out everywhere.</li>
         <li><strong>Subscription and payment records</strong> from Stripe: plan, status, renewal
@@ -77,7 +77,7 @@ export default function Privacy() {
         with you); to bill you, keep records, and answer legal requests (our legal obligations);
         and to keep the service secure, enforce fair-use limits, prevent trial abuse and defend
         payment disputes (our legitimate interests, which do not override yours). We send service
-        emails — sign-in codes, receipts, renewal reminders, notices that affect your subscription
+        emails — sign-in codes, receipts, notices that affect your subscription
         — because the service cannot run without them. We do not send marketing email.
       </p>
 

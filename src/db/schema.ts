@@ -133,6 +133,9 @@ export const subscriptions = pgTable('subscriptions', {
    * withheld in that case, so a trial whose first charge fails does not get
    * extra free days on top of the trial. */
   firstPaidAt: timestamp('first_paid_at', { withTimezone: true }),
+  /** The period end the annual renewal notice was sent for; null until sent.
+   *  Compared against current_period_end, so each term gets exactly one. */
+  renewalNoticeFor: timestamp('renewal_notice_for', { withTimezone: true }),
 
   /* The `created` timestamp of the newest Stripe event applied to this row.
    * An older event arriving late is ignored rather than overwriting newer state. */
