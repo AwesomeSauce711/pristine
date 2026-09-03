@@ -101,7 +101,9 @@ function SignInForm() {
 
   /* Six digits typed or pasted: go, without a second tap. */
   useEffect(() => {
-    if (step === 'code' && code.length === 6 && !busy) void verify();
+    if (step !== 'code' || code.length !== 6 || busy) return;
+    const t = setTimeout(() => { void verify(); }, 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, step]);
 
