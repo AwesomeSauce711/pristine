@@ -97,6 +97,19 @@ interface Props {
  * the comparison honest.
  */
 const PHONE_SCREEN_PX = 1080;
+/*
+ * What 2.9 Mbps does on top of 720 lines.
+ *
+ * The delivered rung is 720x1280, but at TikTok's bitrate for it the picture
+ * resolves noticeably fewer lines than that: fine detail is smeared by the
+ * encoder long before the pixel grid runs out. Modelling the rung as a clean
+ * 720-line downscale therefore UNDERSTATES it -- on a phone-sized mockup the
+ * result was indistinguishable from the source, which is not what a viewer
+ * of the real rendition sees. This factor is the encoder's share: the crushed
+ * side is rendered at three quarters of the rung's own resolution, then drawn
+ * back up. Still only resolution -- no colour, contrast or brightness change.
+ */
+const BITRATE_SOFTNESS = 0.75;
 /* Shown when the reader's own file will not preview. No audio; it is a picture. */
 const PLACEHOLDER_SRC = '/demo/pristine.mp4';
 /* How long a file gets to show its first frame before the stand-in steps in. */
@@ -394,8 +407,8 @@ export default function PreviewCompare({
       W = w; H = h;
       c.width = W; c.height = H;
       const reduction = crushReduction(Math.min(v.videoWidth, v.videoHeight), targetShortEdge);
-      cw = Math.max(8, Math.round(W * reduction));
-      ch = Math.max(8, Math.round(H * reduction));
+      cw = Math.max(8, Math.round(W * reduction * BITRATE_SOFTNESS));
+      ch = Math.max(8, Math.round(H * reduction * BITRATE_SOFTNESS));
       /* Cover-crop the video into the box, the way object-fit: cover does. */
       const boxA = W / H;
       const vidA = v.videoWidth / v.videoHeight;
@@ -465,7 +478,16 @@ export default function PreviewCompare({
      */
     let starting = false;
     const start = () => {
-      if (starting || !v.paused || v.readyState < 3) return;
+      /*
+       * No readiness guard. play() on an element that has not buffered yet
+       * simply starts it when it can; refusing to call it until readyState
+       * says 3 was what left the landing clip black on a phone, where the
+       * default preload fetches metadata and nothing more -- so readyState
+       * never reached 3, so play() was never called, so nothing was fetched.
+       * The autoplay attribute above starts it earlier still; this is the
+       * retry.
+       */
+      if (starting || !v.paused) return;
       starting = true;
       void v.play().catch(() => {}).finally(() => { starting = false; });
     };
@@ -541,7 +563,7 @@ export default function PreviewCompare({
       <video
         ref={videoRef}
         src={effectiveSrc}
-        muted loop playsInline
+        muted loop playsInline autoPlay preload="auto"
         className="absolute inset-0 h-full w-full object-cover"
       />
 

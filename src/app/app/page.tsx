@@ -11,6 +11,7 @@ import SceneStage from '@/components/Stage';
 import Starfield from '@/components/fx/Starfield';
 import { CRUSHED_STATS, PRISTINE_ENGAGEMENT, PRISTINE_STATS, randomPristine } from '@/lib/engagement';
 import DropMorph from '@/components/DropMorph';
+import Countdown from '@/components/Countdown';
 import Link from 'next/link';
 
 /* The rising likes, comments, shares and bookmarks behind the drop zone — the
@@ -144,6 +145,7 @@ export default function AppPage() {
   const [refillBusy, setRefillBusy] = useState(false);
   const [refill, setRefill] = useState<{ amountCents: number } | null>(null);
   const [dailyCap, setDailyCap] = useState<number | null>(null);
+  const [resetsAt, setResetsAt] = useState<string | null>(null);
   const router = useRouter();
   /* Which of PATCH_STEPS is showing while the download is being prepared. */
   const [patchStep, setPatchStep] = useState(0);
@@ -190,6 +192,7 @@ export default function AppPage() {
       setEntitled(next.entitled);
       setRefill(data.refill ?? null);
       setDailyCap(typeof data.dailyCap === 'number' ? data.dailyCap : null);
+      setResetsAt(typeof data.resetsAt === 'string' ? data.resetsAt : null);
       return next;
     } catch {
       /* leave them as they were; the server decides anyway */
@@ -429,6 +432,7 @@ export default function AppPage() {
         const body = await res.json().catch(() => ({}));
         if (body.code === 'daily_quota' || body.code === 'period_quota') {
           setQuotaHit({ code: body.code, message: body.message ?? '' });
+          void refreshAccess(); // for the reset time
           return;
         }
       }
@@ -828,6 +832,9 @@ export default function AppPage() {
                   {quotaHit && (
                     <div className="mt-6 rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
                       <p className="text-[14px] text-text">{quotaHit.message}</p>
+                      <p className="tabular mt-1 text-[13px] text-muted">
+                        Your allowance resets <Countdown until={resetsAt} className="text-text" />.
+                      </p>
                       {refill ? (
                         <>
                           <p className="mt-2 text-[13.5px] leading-relaxed text-muted">

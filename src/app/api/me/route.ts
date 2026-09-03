@@ -30,6 +30,7 @@ export async function GET() {
       dailyRemaining: access.dailyRemaining,
       periodRemaining: access.periodRemaining,
       dailyCap: access.dailyCap ?? null,
+      resetsAt: access.resetsAt?.toISOString() ?? null,
       refillsToday: access.refillsToday ?? 0,
       /* Whether the 99-cent refill can be offered: the Price exists. */
       refill: refillPriceId() ? { amountCents: REFILL_AMOUNT_CENTS } : null,

@@ -52,6 +52,15 @@ export interface Plan {
    * genuine evaluation, and a creator who cannot patch their real backlog during
    * the trial does not convert.
    */
+  /*
+   * The trial's allowance. These used to be 2 a day and 5 for the whole
+   * trial: a hard economic bound on trial farming, and the single cheapest
+   * abuse control in the design. They now equal the plan's own caps, by
+   * decision: a trial that cannot do what the plan does is not a trial of
+   * the plan. What still stands against farming is one trial per card
+   * fingerprint, the daily cap itself, and the fact that a trial needs a
+   * card at all.
+   */
   trialDailyPatchCap: number;
   trialPeriodPatchCap: number;
   /** Hours of access retained after a failed renewal, while Stripe retries. */
@@ -79,8 +88,8 @@ export const PLANS: Record<PlanId, Plan> = {
     periodPatchCap: 7,
     // No trial on weekly, so these are never read. Present so the shape is
     // uniform and a future trial cannot silently inherit the paid caps.
-    trialDailyPatchCap: 2,
-    trialPeriodPatchCap: 5,
+    trialDailyPatchCap: 1,
+    trialPeriodPatchCap: 7,
     graceHours: 24,
     blurb: 'One video a day. For a single launch you need to land.',
     priceEnv: 'STRIPE_PRICE_WEEK',
@@ -93,8 +102,8 @@ export const PLANS: Record<PlanId, Plan> = {
     trialDays: 7,
     dailyPatchCap: 3,
     periodPatchCap: 90,
-    trialDailyPatchCap: 2,
-    trialPeriodPatchCap: 5,
+    trialDailyPatchCap: 3,
+    trialPeriodPatchCap: 90,
     graceHours: 72,
     badge: 'Most popular',
     blurb: 'Three a day. Cheaper than three weeks, for people who post properly.',
@@ -108,8 +117,8 @@ export const PLANS: Record<PlanId, Plan> = {
     trialDays: 7,
     dailyPatchCap: 10,
     periodPatchCap: 3650,
-    trialDailyPatchCap: 2,
-    trialPeriodPatchCap: 5,
+    trialDailyPatchCap: 10,
+    trialPeriodPatchCap: 3650,
     graceHours: 72,
     badge: 'Best value',
     blurb: 'Ten a day, and three months of monthly buys the whole year.',

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import PageShell from '@/components/PageShell';
 import BillingActions from '@/components/BillingActions';
+import Countdown from '@/components/Countdown';
 import { db, schema } from '@/db';
 import { currentUser } from '@/lib/auth';
 import { resolveAccess } from '@/lib/entitlement';
@@ -128,9 +129,11 @@ export default async function AccountPage() {
                     </dd>
                   </div>
                   <div className="bg-panel-2 px-4 py-3.5">
-                    <dt className="legend">Left this period</dt>
+                    <dt className="legend">Allowance resets</dt>
                     <dd className="tabular mt-1 text-[15px]">
-                      {access.periodRemaining} <span className="text-dim">/ {ent.periodPatchCap}</span>
+                      {access.resetsAt
+                        ? <Countdown until={access.resetsAt.toISOString()} />
+                        : <span className="text-dim">nothing used yet</span>}
                     </dd>
                   </div>
                 </dl>

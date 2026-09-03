@@ -93,7 +93,7 @@ export async function resolveAccess(): Promise<Access> {
         tier: 'month',
         dailyRemaining: plan.dailyPatchCap,
         periodRemaining: plan.periodPatchCap,
-        resetsAt: new Date(Date.now() + 86_400_000),
+        resetsAt: null,
       };
     }
   }
@@ -160,6 +160,18 @@ export async function resolveAccess(): Promise<Access> {
       ent.periodStartedAt ? gt(schema.patchRefills.createdAt, ent.periodStartedAt) : sql`true`,
     ));
 
+  /* The window is rolling: the day's allowance comes back 24 hours after the
+   * earliest patch still inside it. That instant is the reset the UI counts
+   * down to; with nothing used there is nothing to reset. */
+  const [first] = await db().select({ at: sql<string | null>`min(${schema.patchJobs.createdAt})` })
+    .from(schema.patchJobs)
+    .where(and(
+      eq(schema.patchJobs.userId, user.id),
+      eq(schema.patchJobs.countsAgainstQuota, true),
+      gt(schema.patchJobs.createdAt, since),
+    ));
+  const resetsAt = first?.at ? new Date(new Date(first.at).getTime() + 86_400_000) : null;
+
   const dailyRemaining = remainingWithRefills(ent.dailyPatchCap, Number(daily?.n ?? 0), Number(refillDay?.n ?? 0));
   const periodRemaining = remainingWithRefills(ent.periodPatchCap, Number(period?.n ?? 0), Number(refillPeriod?.n ?? 0));
 
@@ -173,7 +185,7 @@ export async function resolveAccess(): Promise<Access> {
     periodRemaining,
     dailyCap: ent.dailyPatchCap,
     refillsToday: Number(refillDay?.n ?? 0),
-    resetsAt: new Date(Date.now() + 86_400_000),
+    resetsAt,
   };
 
   if (dailyRemaining <= 0) return { ...base, ok: false, denial: 'daily_quota' };

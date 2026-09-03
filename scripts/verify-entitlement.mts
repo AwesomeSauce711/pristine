@@ -73,10 +73,15 @@ console.log('\nentitlement mapping\n');
     e.dailyPatchCap === PLANS.month.trialDailyPatchCap &&
     e.periodPatchCap === PLANS.month.trialPeriodPatchCap,
     `${e.dailyPatchCap}/day, ${e.periodPatchCap}/period`);
-  ok('the trial caps are genuinely lower than the paid caps',
-    PLANS.month.trialDailyPatchCap < PLANS.month.dailyPatchCap &&
-    PLANS.month.trialPeriodPatchCap < PLANS.month.periodPatchCap,
-    `trial ${PLANS.month.trialDailyPatchCap}/${PLANS.month.trialPeriodPatchCap} vs paid ${PLANS.month.dailyPatchCap}/${PLANS.month.periodPatchCap}`);
+  /* By decision, a trial has the plan's own allowance: a trial that cannot do
+   * what the plan does is not a trial of the plan. The farming bound this
+   * used to pin (5 for the whole trial) is carried by the card-fingerprint
+   * rule and the daily cap instead. */
+  ok('the trial has the plan\'s own allowance, on every plan',
+    (['week', 'month', 'year'] as const).every((id) =>
+      PLANS[id].trialDailyPatchCap === PLANS[id].dailyPatchCap &&
+      PLANS[id].trialPeriodPatchCap === PLANS[id].periodPatchCap),
+    `month trial ${PLANS.month.trialDailyPatchCap}/${PLANS.month.trialPeriodPatchCap}, paid ${PLANS.month.dailyPatchCap}/${PLANS.month.periodPatchCap}`);
 
   const paid = computeEntitlement(base({ status: 'active', currentPeriodEnd: days(20), firstPaidAt: days(-1) }));
   ok('a paying subscriber gets the full caps',
