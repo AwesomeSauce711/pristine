@@ -98,6 +98,10 @@ interface Props {
  * the comparison honest.
  */
 const PHONE_SCREEN_PX = 1080;
+/* Shown when the reader's own file will not preview. No audio; it is a picture. */
+const PLACEHOLDER_SRC = '/demo/pristine.mp4';
+/* How long a file gets to show its first frame before the stand-in steps in. */
+const FIRST_FRAME_MS = 6000;
 
 /**
  * How much smaller the crushed side is drawn than the clean one, as a fraction.
@@ -146,43 +150,57 @@ export default function PreviewCompare({
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cleanRef = useRef<HTMLCanvasElement>(null);
   const [pos, setPos] = useState(50);
   const [dragging, setDragging] = useState(false);
+  /*
+   * The stand-in. If the reader's own file produces no frame within a few
+   * seconds -- a decode the browser will not start, a container it plays
+   * badly, a stall on a cold page -- the screen must not sit black. A bundled
+   * clip takes its place with a line saying so; the download is unaffected,
+   * because the download never depended on the preview.
+   */
+  const [fallback, setFallback] = useState(false);
+  const effectiveSrc = fallback ? PLACEHOLDER_SRC : src;
 
   useEffect(() => {
     const v = videoRef.current;
-    const c = canvasRef.current;
+    const crush = canvasRef.current;
+    const clean = cleanRef.current;
     const wrap = wrapRef.current;
-    if (!v || !c || !wrap) return;
-    const ctx = c.getContext('2d', { alpha: false });
-    if (!ctx) return;
+    if (!v || !crush || !clean || !wrap) return;
+    const cctx = crush.getContext('2d');
+    const kctx = clean.getContext('2d');
+    if (!cctx || !kctx) return;
+    const isFallback = effectiveSrc === PLACEHOLDER_SRC;
 
     /*
-     * THE CLEAN SIDE IS THE VIDEO. ONLY THE CRUSHED SIDE IS DRAWN.
+     * BOTH HALVES ARE DRAWN FROM THE SAME PRESENTED FRAME.
      *
-     * The previous version drew both halves onto one full-resolution canvas so
-     * they could never be a frame apart. On a phone that was the lag: every
-     * presented frame of a 4K60 file was copied out of the decoder into a
-     * device-pixel canvas twice -- a GPU-to-CPU trip per copy -- while the page
-     * was decoding the same 4K60 underneath. The decoder was being starved by
-     * the thing showing its output.
+     * The clean side used to be the <video> element itself with the crushed
+     * side drawn from it. Drawing from a playing element always lands one
+     * composite behind the element -- the callback fires for the frame that
+     * has just been presented -- so the crushed half trailed the clean half by
+     * a frame, every frame, and at 60fps that is plainly visible on a cut.
      *
-     * The <video> element composites for free: the decoder hands frames to
-     * the compositor and nothing touches them. So the clean side is the
-     * element again, and the only copy per frame is the SMALL one -- the
-     * crushed canvas, at the reduced size that is the whole argument.
+     * So the clean half is a canvas too. One callback, one frame, two draws:
+     * the clean canvas at display size, the crushed canvas at the reduced size
+     * that is the whole argument. They cannot disagree about which frame it is.
+     * The <video> stays underneath at full size: mobile browsers pause a video
+     * they judge invisible, and the canvases are transparent until the first
+     * frame lands, so its own picture shows through until then rather than a
+     * black rectangle.
      *
-     * WHY THEY ARE STILL THE SAME FRAME
-     * `requestVideoFrameCallback` fires when the browser presents a new video
-     * frame, with that frame ready to draw. Drawing there means the canvas
-     * shows the very frame the element is compositing -- not the frame a
-     * requestAnimationFrame happened to catch, and not one held back to fake a
-     * lower rate (that throttle was what read as the halves being out of
-     * step). Where the API is missing, requestAnimationFrame stands in and the
-     * canvas is at worst the frame the element just left.
+     * COST, AND WHY IT IS AFFORDABLE NOW
+     * A full-size draw per frame was what starved the decoder on a phone once
+     * before -- at three times the pixel ratio. The clean canvas is capped at
+     * 1x on a lite device and 2x elsewhere, drawn once per presented video
+     * frame rather than per animation frame, and none of the other loops that
+     * shared the phone then are running any more.
      */
     let raf = 0;
     let vfc = 0;
+    let framesDrawn = 0;
     const rvfc = v as HTMLVideoElement & {
       requestVideoFrameCallback?: (cb: () => void) => number;
       cancelVideoFrameCallback?: (handle: number) => void;
@@ -193,43 +211,26 @@ export default function PreviewCompare({
       if (!v.videoWidth) return;
       const shortEdge = Math.min(v.videoWidth, v.videoHeight);
       const aspect = v.videoHeight / v.videoWidth;
-
-      /*
-       * The reduction is relative to the SCREEN, not to the source.
-       *
-       * The first version compared the delivered rung to the source -- 720
-       * against 2160 -- and drew the crushed side at a third of the width. That
-       * is not what anyone sees. Nobody watches a 4K file at 4K on a phone: both
-       * versions are displayed on a screen about 1080 physical pixels wide. So
-       * the real comparison is 720 upscaled to 1080 (a 1.5x stretch) against a
-       * source that already meets or exceeds 1080. A third was roughly four
-       * times too destructive, which is why the text was unreadable.
-       *
-       * Capped at 1: a source already below the rung is not made worse by it,
-       * and pretending otherwise would be a lie in our own favour.
-       */
       const reduction = crushReduction(shortEdge, targetShortEdge);
-
-      // Work in device pixels, or a 2x screen hides the difference entirely;
-      // but no more than 2x on a lite device, where every pixel is a copy.
-      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 2 : 3);
+      const dpr = Math.min(window.devicePixelRatio || 1, sceneIsLite() ? 1 : 2);
       const physicalW = (wrap.clientWidth || 300) * dpr;
-
-      c.width = Math.max(16, Math.round(physicalW * reduction));
-      c.height = Math.max(16, Math.round(physicalW * reduction * aspect));
+      clean.width = Math.max(16, Math.round(physicalW));
+      clean.height = Math.max(16, Math.round(physicalW * aspect));
+      crush.width = Math.max(16, Math.round(physicalW * reduction));
+      crush.height = Math.max(16, Math.round(physicalW * reduction * aspect));
+      paint();
     };
 
     const paint = () => {
-      if (v.readyState >= 2 && c.width > 0) {
-        /*
-         * Only the resolution. There used to be a colour filter here too --
-         * less saturation, less contrast, a little darker -- and it was the
-         * reason the crushed side read as exaggerated: TikTok's transcode
-         * keeps the colour and loses the detail. The detail loss is the
-         * downscale-and-back this canvas performs, and nothing else.
-         */
-        ctx.drawImage(v, 0, 0, c.width, c.height);
-      }
+      if (v.readyState < 2 || clean.width === 0) return;
+      kctx.drawImage(v, 0, 0, clean.width, clean.height);
+      /* Only the resolution. There used to be a colour filter here too -- less
+       * saturation, less contrast, a little darker -- and it was the reason the
+       * crushed side read as exaggerated: TikTok's transcode keeps the colour
+       * and loses the detail. The detail loss is the downscale-and-back this
+       * canvas performs, and nothing else. */
+      cctx.drawImage(v, 0, 0, crush.width, crush.height);
+      framesDrawn++;
     };
     const onFrame = () => {
       paint();
@@ -252,21 +253,22 @@ export default function PreviewCompare({
       void v.play().catch(() => {}).finally(() => { starting = false; });
     };
     const onGesture = () => { if (v.paused) start(); };
-    /*
-     * A decode that fails outright -- a second decoder unavailable on a cold
-     * page, a source the pipeline rejected once -- leaves a black screen and
-     * no further events. One reload, after a beat; if that fails too the
-     * gesture retry above remains.
-     */
+    /* A decode that fails outright gets one reload, after a beat. */
     let reloaded = false;
     const onError = () => {
       if (reloaded) return;
       reloaded = true;
       window.setTimeout(() => { v.load(); start(); }, 800);
     };
-    v.addEventListener('error', onError);
+    /* The stand-in, if nothing has been drawn by the deadline. Never for the
+     * stand-in itself: there is nowhere further to fall. */
+    const watchdog = window.setTimeout(() => {
+      if (framesDrawn === 0 && !isFallback) setFallback(true);
+    }, FIRST_FRAME_MS);
 
+    v.addEventListener('error', onError);
     v.addEventListener('loadedmetadata', size);
+    v.addEventListener('loadeddata', paint);
     v.addEventListener('canplay', start);
     document.addEventListener('pointerdown', onGesture, { passive: true, capture: true });
     document.addEventListener('touchstart', onGesture, { passive: true, capture: true });
@@ -276,24 +278,24 @@ export default function PreviewCompare({
 
     start();
     if (hasVfc) {
-      /* One draw per presented frame, and none at all while paused. The first
-       * paint is immediate so a refused autoplay still shows a correct split. */
       paint();
       vfc = rvfc.requestVideoFrameCallback!(onFrame);
     } else {
       raf = requestAnimationFrame(tick);
     }
     return () => {
+      window.clearTimeout(watchdog);
       if (raf) cancelAnimationFrame(raf);
       if (vfc && rvfc.cancelVideoFrameCallback) rvfc.cancelVideoFrameCallback(vfc);
       ro.disconnect();
-      v.removeEventListener('loadedmetadata', size);
-      v.removeEventListener('canplay', start);
       v.removeEventListener('error', onError);
+      v.removeEventListener('loadedmetadata', size);
+      v.removeEventListener('loadeddata', paint);
+      v.removeEventListener('canplay', start);
       document.removeEventListener('pointerdown', onGesture, { capture: true });
       document.removeEventListener('touchstart', onGesture, { capture: true });
     };
-  }, [src, targetShortEdge]);
+  }, [effectiveSrc, targetShortEdge]);
 
   /*
    * Every change to the split goes through here, and the parent hears about
@@ -419,17 +421,23 @@ export default function PreviewCompare({
       className="relative aspect-[9/19.5] w-full touch-none select-none overflow-hidden
                  rounded-[38px] bg-black"
     >
-      {/* Clean side -- the video itself, composited by the browser at no cost.
-          Not autoPlay: the effect starts it and retries a refusal. */}
+      {/* The source, full size underneath. Kept visible so a mobile browser
+          does not pause it, and seen only until the first frame is drawn. */}
       <video
         ref={videoRef}
-        src={src}
+        src={effectiveSrc}
         muted loop playsInline
         className="absolute inset-0 h-full w-full object-cover"
       />
 
-      {/* Crushed side, clipped to the left of the handle, drawn from the same
-          presented frame (see the effect). The element itself carries no filter. */}
+      {/* Clean side: the same frame the crushed side is drawn from. */}
+      <canvas
+        ref={cleanRef}
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+
+      {/* Crushed side, clipped to the left of the handle. */}
       <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
         <canvas
           ref={canvasRef}
@@ -437,6 +445,16 @@ export default function PreviewCompare({
           className="absolute inset-0 h-full w-full object-cover"
         />
       </div>
+
+      {fallback && (
+        <div
+          role="status"
+          className="pointer-events-none absolute inset-x-3 top-[4.5rem] z-10 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-center text-[10.5px] leading-snug text-white/85"
+        >
+          Your file couldn&rsquo;t be shown as a preview here, so this is a stand-in clip.
+          Downloading still gives you the full result.
+        </div>
+      )}
 
       {/* Legibility wash, top and bottom, over both halves. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/65 to-transparent" />

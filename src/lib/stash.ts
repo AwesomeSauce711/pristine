@@ -35,7 +35,16 @@
 const DB_NAME = 'pristine';
 const STORE = 'stash';
 const KEY = 'pending';
-const TTL_MS = 60 * 60 * 1000;
+/*
+ * A day. It was an hour, and the copy now has to outlive sign-in AND the
+ * payment page AND however long someone takes between the two. It lives in
+ * the reader's own browser profile on their own disk, is deleted the moment a
+ * download succeeds, and never leaves the device -- the same promise the site
+ * makes about the file itself.
+ */
+const TTL_MS = 24 * 60 * 60 * 1000;
+/* Copies up to this size are re-read into memory on restore (see rehydrateFile). */
+const REHYDRATE_MAX = 400 * 1024 * 1024;
 
 export interface StashedFile {
   file: File;
@@ -94,11 +103,43 @@ export async function stashFile(file: File): Promise<boolean> {
   const db = await open();
   if (!db) return false;
   try {
-    const ok = await tx(db, 'readwrite', (s) =>
-      s.put({ file, name: file.name, savedAt: Date.now() }, KEY) as IDBRequest<IDBValidKey>);
-    return ok !== null;
+    const put = (f: File) => tx(db, 'readwrite', (s) =>
+      s.put({ file: f, name: f.name, savedAt: Date.now() }, KEY) as IDBRequest<IDBValidKey>);
+    if ((await put(file)) !== null) return true;
+    /*
+     * A file that came back out of this store is disk-backed in a way some
+     * engines will not write back in. One retry with a plain in-memory copy,
+     * for anything that fits.
+     */
+    if (file.size > REHYDRATE_MAX) return false;
+    const copy = new File([await file.arrayBuffer()], file.name, { type: file.type || 'video/mp4', lastModified: file.lastModified });
+    return (await put(copy)) !== null;
+  } catch {
+    return false;
   } finally {
     db.close();
+  }
+}
+
+/**
+ * A restored file, made plain.
+ *
+ * A File read back from IndexedDB is backed by the browser's blob store rather
+ * than by memory, and a <video> element plays those less reliably than an
+ * ordinary one -- the reported symptom was a preview that came back black
+ * while the same bytes scanned fine. Re-reading it into memory gives the
+ * media pipeline an ordinary blob. Bounded by size so a very large file is
+ * used as it is rather than risking the memory.
+ */
+export async function rehydrateFile(file: File): Promise<File> {
+  if (file.size > REHYDRATE_MAX) return file;
+  try {
+    return new File([await file.arrayBuffer()], file.name, {
+      type: file.type || 'video/mp4',
+      lastModified: file.lastModified,
+    });
+  } catch {
+    return file;
   }
 }
 

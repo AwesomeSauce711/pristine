@@ -20,7 +20,21 @@ const HeroField = dynamic(() => import('@/components/three/HeroField'), { ssr: f
 import { Mp4Error } from '@/lib/mp4/boxes';
 import { assemble, scanFile, type ScanResult } from '@/lib/mp4/scan';
 import { play, soundProps } from '@/lib/sound';
-import { clearStash, peekStashedFile, stashFile } from '@/lib/stash';
+import { clearStash, peekStashedFile, rehydrateFile, stashFile } from '@/lib/stash';
+
+/*
+ * Wait for the copy to be written before any navigation destroys the page. It
+ * used to be fired and forgotten a moment before leaving for sign-in or Stripe,
+ * which is a race a large file loses -- and the return then said the copy
+ * could not be kept. Never hang the button on a slow disk, though: past eight
+ * seconds, go anyway, and the return will say so.
+ */
+async function stashBeforeLeaving(file: File): Promise<boolean> {
+  return Promise.race([
+    stashFile(file),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+  ]);
+}
 
 /*
  * The tool.
@@ -229,13 +243,18 @@ export default function AppPage() {
     (async () => {
       /* Peek, restore, then clear: the stash is the only copy, and a restore
        * interrupted by a re-mount must be able to run again. */
-      const f = await peekStashedFile();
+      const stashed = await peekStashedFile();
       if (cancelled) return;
-      if (!f) { setResumeNote(true); void refreshAccess(); return; }
+      if (!stashed) { setResumeNote(true); void refreshAccess(); return; }
+      /* The copy STAYS until a download succeeds: from here the reader may
+       * still go to the plans and to Stripe, and the copy must survive that
+       * trip too. Clearing it here and re-writing it later was where it was
+       * lost. Re-read into memory first so it plays like a fresh file. */
+      const f = await rehydrateFile(stashed);
+      if (cancelled) return;
       setSkipMorph(true);
       await take(f);
       if (cancelled) return;
-      void clearStash();
 
       let access = await refreshAccess();
       if (!paid) return;
@@ -328,7 +347,7 @@ export default function AppPage() {
      * refuse to do is the wrong way round.
      */
     if (!entitled) {
-      void stashFile(file);
+      await stashBeforeLeaving(file);
       /*
        * Not signed in: sign in FIRST, then choose a plan. The file is stashed
        * and the return address restores it and presses Download again, so the
@@ -364,7 +383,7 @@ export default function AppPage() {
          * browser will not store it, the user re-selects on return, which is
          * what happens today anyway.
          */
-        void stashFile(file);
+        await stashBeforeLeaving(file);
         if (res.status === 401) {
           router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
           return;
@@ -864,7 +883,7 @@ export default function AppPage() {
               </button>
             </div>
           )}
-          <DropMorph stage={stage} dropRef={dropRef} stageRef={stageWrapRef} videoSrc={url} skip={skipMorph} />
+          <DropMorph stage={stage} dropRef={dropRef} stageRef={stageWrapRef} skip={skipMorph} />
         </main>
       </div>
 

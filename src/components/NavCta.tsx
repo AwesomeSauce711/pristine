@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useMe } from '@/lib/use-me';
 
 /*
  * The one part of the nav that depends on who is looking.
@@ -20,30 +20,18 @@ import { useEffect, useState } from 'react';
  * Display only. Every page it links to enforces its own access server-side.
  */
 export default function NavCta({ tryFree = true }: { tryFree?: boolean }) {
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    const check = () => fetch('/api/me', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d: { signedIn?: boolean }) => { if (live) setSignedIn(!!d.signedIn); })
-      .catch(() => { /* leave it on the signed-out default */ });
-
-    void check();
-    // Signing in happens in this tab; coming back to it should reflect that.
-    const onFocus = () => void check();
-    window.addEventListener('focus', onFocus);
-    return () => { live = false; window.removeEventListener('focus', onFocus); };
-  }, []);
+  const { signedIn, entitled } = useMe();
 
   const classes =
     'ml-1 pill pill-primary pill-sm';
 
+  /* A subscriber's one action is to upload; the account is a link away. */
+  if (entitled) {
+    return <Link href="/app" className={classes}>Upload</Link>;
+  }
   if (signedIn) {
     return <Link href="/account" className={classes}>Account</Link>;
   }
-  /* A subscriber on a new device needs a door too; it is small, and it
-   * disappears once they are through it. */
   return (
     <>
       <Link href="/sign-in" className="nav-link hidden sm:inline-flex">Sign in</Link>

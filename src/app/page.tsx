@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import CompareStage from '@/components/CompareStage';
+import HeroCta from '@/components/HeroCta';
 import Plate3D from '@/components/Plate3D';
 import PricingTable from '@/components/PricingTable';
 import Reveal from '@/components/Reveal';
@@ -297,9 +298,7 @@ export default function Home() {
               </p>
 
               <div className="mt-9 flex flex-wrap items-center gap-3">
-                <Link href="/app" className="pill pill-primary" {...soundProps('hover')}>
-                  Try it on your video — free
-                </Link>
+                <HeroCta />
                 <Link href="#pricing" className="pill pill-ghost" {...soundProps('hover')}>
                   See pricing
                 </Link>

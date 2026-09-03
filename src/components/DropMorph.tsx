@@ -75,7 +75,7 @@ const frame = (b: Box, radius: number, opacity: number) => ({
   opacity,
 });
 
-export default function DropMorph({ stage, dropRef, stageRef, videoSrc, skip = false }: Props) {
+export default function DropMorph({ stage, dropRef, stageRef, skip = false }: Props) {
   const lastDrop = useRef<Box | null>(null);
 
   useLayoutEffect(() => {
@@ -126,23 +126,12 @@ export default function DropMorph({ stage, dropRef, stageRef, videoSrc, skip = f
     const ghost = document.createElement('div');
     ghost.className = 'drop-morph';
     ghost.setAttribute('aria-hidden', 'true');
-    /* The reader's own video, fading up on the slab over the first half of
-     * the flight: the zone turns into the phone with the picture already on
-     * it, and the real phone underneath takes over on landing. */
-    if (videoSrc) {
-      const v = document.createElement('video');
-      v.src = videoSrc;
-      v.muted = true;
-      v.loop = true;
-      v.playsInline = true;
-      v.autoplay = true;
-      ghost.appendChild(v);
-      void v.play().catch(() => {});
-      v.animate(
-        [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }],
-        { duration: FLY_MS, easing: 'ease-out', fill: 'forwards' },
-      );
-    }
+    /*
+     * The slab used to carry a playing copy of the reader's video. That was a
+     * second 4K60 decoder started in the same instant as the real one, and on
+     * the machines where the two contended the real one came up black. The
+     * slab flies empty now; the picture arrives with the phone.
+     */
     document.body.appendChild(ghost);
 
     /* The real stage waits, unseen, until the slab has all but landed. */
@@ -200,7 +189,7 @@ export default function DropMorph({ stage, dropRef, stageRef, videoSrc, skip = f
       reveal.cancel();
       wrap.style.opacity = '';
     };
-  }, [stage, dropRef, stageRef, videoSrc, skip]);
+  }, [stage, dropRef, stageRef, skip]);
 
   return null;
 }
