@@ -263,14 +263,35 @@ export function isScheduledToEnd(sub: Stripe.Subscription): boolean {
   return sub.cancellation_details?.reason === 'cancellation_requested';
 }
 
-/** Record that money actually arrived. Gates the grace period. */
+/**
+ * Record that money actually arrived. Gates the grace period.
+ *
+ * WHY IT MAY HAVE TO CREATE THE ROW FIRST
+ * Stripe sends invoice.paid and customer.subscription.created in the same
+ * second, and the webhook handles them concurrently. On a real purchase the
+ * payment landed before the subscription row existed: the UPDATE matched
+ * nothing, the row was inserted a moment later with first_paid_at null, and
+ * the sync's update path never touches that column (on purpose -- see the
+ * upsert). So a paying customer had no first payment on record, which is the
+ * fact that gates the grace period. If the update matches no row, the row is
+ * synced into existence and the stamp is applied again.
+ */
 export async function markFirstPaid(subscriptionId: string, at: Date): Promise<void> {
-  await db().update(schema.subscriptions)
+  const stamp = () => db().update(schema.subscriptions)
     .set({ firstPaidAt: at })
     .where(and(
       eq(schema.subscriptions.stripeSubscriptionId, subscriptionId),
       sql`${schema.subscriptions.firstPaidAt} is null`,
-    ));
+    ))
+    .returning({ id: schema.subscriptions.stripeSubscriptionId });
+
+  if ((await stamp()).length) return;
+  const exists = await db().select({ id: schema.subscriptions.stripeSubscriptionId })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.stripeSubscriptionId, subscriptionId)).limit(1);
+  if (exists.length) return; // already stamped by an earlier payment
+  await syncSubscription(subscriptionId, at);
+  await stamp();
 }
 
 /**

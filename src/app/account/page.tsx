@@ -38,6 +38,16 @@ export default async function AccountPage() {
   const plan = ent?.tier ? PLANS[ent.tier as PlanId] : null;
   const until = ent?.accessUntil ?? null;
   const live = !!until && until > new Date() && !ent?.revokedAt;
+  /*
+   * The plan block is shown for a plan that is live, or in the failed-payment
+   * grace window where the sentence tells them what to fix. Everything else --
+   * refunded, cancelled outright, expired -- is "no active plan": showing the
+   * old plan's name with a red pill read as a restricted subscription, when in
+   * fact there is nothing to restrict. A cancel-at-period-end is still live
+   * until the date, and says so.
+   */
+  const showPlan = !!ent && (live || ent.state === 'grace');
+  const suspendedForDispute = !!ent?.revokedAt && ent.revokedReason === 'dispute';
 
   const dateFmt = (d: Date) =>
     d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -51,9 +61,16 @@ export default async function AccountPage() {
         <section className="plate plate-face plate-glow mt-10 rounded-panel p-7">
           <div className="legend">Subscription</div>
 
-          {!ent || (!live && ent.state === 'none') ? (
+          {!showPlan ? (
             <>
-              <p className="mt-3 text-[15px]">No active plan.</p>
+              <p className="mt-3 text-[15px]">
+                {suspendedForDispute ? 'Access is suspended.' : 'No active plan.'}
+              </p>
+              {suspendedForDispute && (
+                <p className="mt-2 text-[14px] leading-relaxed text-bad">
+                  There is a payment dispute on this account. Please contact support.
+                </p>
+              )}
               <p className="mt-2 text-[14px] leading-relaxed text-muted">
                 You can upload, analyse and preview videos for free. A plan is needed to
                 download the finished file.

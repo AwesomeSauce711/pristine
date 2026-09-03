@@ -79,6 +79,23 @@ export async function POST(req: Request) {
     }, { status: 503 });
   }
 
+  /*
+   * SIGN IN FIRST. The anonymous path below is kept intact but no longer
+   * reachable from the site: a buyer who is not signed in is sent to sign in
+   * with their file stashed, and comes back to pick the plan. The reason is
+   * what happened on the first real purchase -- the buyer's address already
+   * had an account, so the return could not sign them in (lib/billing/claim
+   * explains why it must not), and they landed on a code prompt with no file
+   * and no download. With the session established before Stripe, the return
+   * is unambiguous: same browser, same account, restore the file, download.
+   */
+  if (!user) {
+    return Response.json(
+      { code: 'sign_in_required', message: 'Please sign in first.' },
+      { status: 401 },
+    );
+  }
+
   const planId = body.plan as PlanId;
   if (!planId || !(planId in PLANS)) {
     return Response.json({ code: 'unknown_plan' }, { status: 400 });

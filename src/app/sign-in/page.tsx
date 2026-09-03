@@ -23,6 +23,8 @@ function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/app';
+  /* Sent here by the Download button: the file is stashed and waiting. */
+  const forDownload = next.includes('intent=download');
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -82,11 +84,13 @@ function SignInForm() {
   return (
     <Plate3D depth={10} tilt={1.5} className="p-7 md:p-9">
       <h1 className="title-3d text-[1.7rem]">
-        {step === 'email' ? 'Sign in' : 'Check your email'}
+        {step === 'email' ? (forDownload ? 'Sign in to download' : 'Sign in') : 'Check your email'}
       </h1>
       <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
         {step === 'email'
-          ? 'No password to remember. We email you a six-digit code, and this device stays signed in for six months.'
+          ? (forDownload
+              ? 'Your video is waiting. We email you a six-digit code; then you pick a plan and the download starts on its own.'
+              : 'No password to remember. We email you a six-digit code, and this device stays signed in for six months.')
           : <>We sent a code to <span className="text-text">{email}</span>. It expires in ten minutes.</>}
       </p>
 

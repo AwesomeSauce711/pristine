@@ -54,7 +54,7 @@ export async function GET(req: Request) {
        * dropped was stashed before the redirect, so /app restores it and the
        * download starts without them doing anything.
        */
-      return Response.redirect(`${origin}/app?resume=1`, 303);
+      return Response.redirect(`${origin}/app?resume=1&paid=1`, 303);
 
     case 'needs_code':
       return Response.redirect(

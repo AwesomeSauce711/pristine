@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { PLANS, PLAN_ORDER, annualSavingPct, money, type PlanId } from '@/lib/plans';
 
 /*
@@ -36,6 +37,7 @@ import { PLANS, PLAN_ORDER, annualSavingPct, money, type PlanId } from '@/lib/pl
 export default function PricingTable() {
   const [busy, setBusy] = useState<PlanId | null>(null);
   const [error, setError] = useState('');
+  const router = useRouter();
 
   /*
    * Straight to Stripe. There used to be a modal here that repeated the price,
@@ -49,6 +51,16 @@ export default function PricingTable() {
    * The verbatim text and its hash are still written to `consents` before the
    * session exists, so the evidence record is unchanged.
    */
+  /* Back from sign-in with the plan they chose: start it without a second click. */
+  useEffect(() => {
+    const chosen = new URLSearchParams(window.location.search).get('plan');
+    if (!chosen || !(chosen in PLANS)) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    void start(chosen as PlanId);
+    // Runs once, on mount; `start` is stable for the life of the component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function start(plan: PlanId) {
     setBusy(plan);
     setError('');
@@ -59,6 +71,13 @@ export default function PricingTable() {
         body: JSON.stringify({ plan, consented: true }),
       });
       const data = await res.json();
+      if (res.status === 401 && data.code === 'sign_in_required') {
+        /* Sign in, then come straight back and start this plan (see the
+         * effect below), so the choice is not lost to the navigation. */
+        const back = `${window.location.pathname}?plan=${plan}`;
+        router.push(`/sign-in?next=${encodeURIComponent(back)}`);
+        return;
+      }
       if (!res.ok || !data.url) {
         setError(data.message ?? 'Checkout could not be started. Please try again.');
         setBusy(null);

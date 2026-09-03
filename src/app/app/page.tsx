@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Plate3D from '@/components/Plate3D';
 import PreviewCompare, { PreviewNote } from '@/components/PreviewCompare';
@@ -118,6 +119,9 @@ export default function AppPage() {
    * the page looks like and nothing else.
    */
   const [entitled, setEntitled] = useState(false);
+  /* null until /api/me has answered once; the download button waits on it. */
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const router = useRouter();
   /* Which of PATCH_STEPS is showing while the download is being prepared. */
   const [patchStep, setPatchStep] = useState(0);
   /*
@@ -151,12 +155,20 @@ export default function AppPage() {
   const [pos, setPos] = useState(50);
   const onPos = useCallback((p: number) => setPos(p), []);
 
-  const refreshAccess = useCallback(async () => {
+  const refreshAccess = useCallback(async (): Promise<{ signedIn: boolean; entitled: boolean }> => {
     try {
       const res = await fetch('/api/me', { cache: 'no-store' });
       const data = await res.json();
-      setEntitled(Boolean(data.entitled));
-    } catch { /* leave it false; the server decides anyway */ }
+      const next = { signedIn: Boolean(data.signedIn), entitled: Boolean(data.entitled) };
+      setSignedIn(next.signedIn);
+      setEntitled(next.entitled);
+      return next;
+    } catch {
+      /* leave them as they were; the server decides anyway */
+      return { signedIn: signedIn ?? false, entitled };
+    }
+    // Reads the latest state only for the failure fallback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { void refreshAccess(); }, [refreshAccess]);
@@ -186,13 +198,30 @@ export default function AppPage() {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('resume') !== '1') return;
+    /*
+     * Two ways back here with a stashed file:
+     *   paid=1          from Stripe, via the claim route. The webhook that
+     *                   grants access may still be in flight (a few seconds),
+     *                   so wait for it rather than showing the plans again to
+     *                   someone who has just paid.
+     *   intent=download from sign-in, which the Download button sent them to.
+     *                   Restore the file and press Download for them: entitled,
+     *                   it downloads; not entitled, the plans open.
+     */
+    const paid = params.get('paid') === '1';
 
-    // Drop the flag immediately so a refresh does not try to resume twice.
+    // Drop the flags immediately so a refresh does not try to resume twice.
     window.history.replaceState(null, '', '/app');
 
     let cancelled = false;
     (async () => {
-      await refreshAccess();
+      let access = await refreshAccess();
+      if (paid && !access.entitled) {
+        for (let i = 0; i < 10 && !cancelled && !access.entitled; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          access = await refreshAccess();
+        }
+      }
       const f = await takeStashedFile();
       if (cancelled) return;
       if (!f) { setResumeNote(true); return; }
@@ -282,6 +311,15 @@ export default function AppPage() {
      */
     if (!entitled) {
       void stashFile(file);
+      /*
+       * Not signed in: sign in FIRST, then choose a plan. The file is stashed
+       * and the return address restores it and presses Download again, so the
+       * next thing they see after the code is the plans -- not the drop zone.
+       */
+      if (signedIn === false) {
+        router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
+        return;
+      }
       setPaywall(true);
       return;
     }
@@ -309,6 +347,10 @@ export default function AppPage() {
          * what happens today anyway.
          */
         void stashFile(file);
+        if (res.status === 401) {
+          router.push(`/sign-in?next=${encodeURIComponent('/app?resume=1&intent=download')}`);
+          return;
+        }
         setPaywall(true);
         return;
       }

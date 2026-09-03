@@ -38,7 +38,7 @@ chk "bad signature rejected"           "$(code -X POST -H 'stripe-signature: t=1
 
 echo; echo "CSRF"
 chk "cross-origin POST refused"        "$(code -X POST -H 'Origin: https://evil.example' -H 'content-type: application/json' -d '{}' "$B/api/billing/checkout")" "403"
-chk "same-origin POST allowed"         "$(code -X POST -H "Origin: $B" -H 'content-type: application/json' -d '{"plan":"week","consented":true}' "$B/api/billing/checkout")" "200"
+chk "same-origin POST reaches the route (401: sign in first)" "$(code -X POST -H "Origin: $B" -H 'content-type: application/json' -d '{"plan":"week","consented":true}' "$B/api/billing/checkout")" "401"
 
 echo; echo "CLAIM (cannot be forged)"
 chk "no cookie"                        "$(code "$B/api/billing/claim")" "303"

@@ -151,10 +151,19 @@ const checkout = await http('/api/billing/checkout', {
   headers: { 'content-type': 'application/json', origin: ORIGIN },
   body: JSON.stringify({ plan: 'week', consented: true }),
 });
-const live = checkout.body.includes('checkout.stripe.com');
-add('checkout works', checkout.status === 200 && live,
+/* Checkout needs a session now, so an anonymous call proves only that the
+ * route is up and refuses correctly. The key-and-prices agreement it used to
+ * prove is read from /api/status instead, below. */
+add('checkout route refuses anonymous', checkout.status === 401 && checkout.body.includes('sign_in_required'),
   checkout.status === 503 ? 'selling is paused (method_status is not ok)' : `-> ${checkout.status}`,
   checkout.status !== 503);
+
+const status = await http('/api/status');
+let prices = 'unreadable';
+try { prices = String(JSON.parse(status.body).prices ?? 'missing'); } catch { /* not json */ }
+add('live prices match the site', prices === 'ok',
+  prices === 'mismatch' ? 'a STRIPE_PRICE_* id disagrees with plans.ts -- checkout is refusing sales'
+    : `-> ${prices}`);
 
 /* ---- how stale is the last human confirmation? -------------------------- */
 

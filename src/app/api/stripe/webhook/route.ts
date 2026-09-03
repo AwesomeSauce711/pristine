@@ -395,9 +395,24 @@ async function userIdForCharge(chargeId: string | undefined): Promise<string | n
   return rows[0]?.userId ?? null;
 }
 
+/**
+ * The user a subscription belongs to, from our own row. The fallback for an
+ * invoice whose customer is not yet linked to an account -- which is what an
+ * anonymous checkout looked like in the second the payment landed, and why two
+ * real invoices were stored with no user.
+ */
+async function userIdForSubscription(subId: string | null): Promise<string | null> {
+  if (!subId) return null;
+  const rows = await db().select({ userId: schema.subscriptions.userId })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.stripeSubscriptionId, subId)).limit(1);
+  return rows[0]?.userId ?? null;
+}
+
 async function upsertInvoice(inv: Stripe.Invoice): Promise<void> {
   const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id;
-  const userId = customerId ? await userIdForCustomer(customerId) : null;
+  const userId = (customerId ? await userIdForCustomer(customerId) : null)
+    ?? await userIdForSubscription(subscriptionIdOf(inv));
   const chargeId = (inv as unknown as { charge?: string | { id: string } }).charge;
 
   const row = {
