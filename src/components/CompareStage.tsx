@@ -17,7 +17,7 @@ import { CRUSHED_STATS, PRISTINE_STATS, randomPristine } from '@/lib/engagement'
  *
  * WHAT THE CLIP IS
  * The right half is a Pristine-patched 4K60 upload -- 2160x3840, 60fps,
- * 21.9 Mbps, the file TikTok serves back byte for byte -- cut from its 4K
+ * 22.8 Mbps, the file TikTok serves back byte for byte -- cut from its 4K
  * section and re-encoded to 1080x1920 for the web. The
  * crush is computed against the screen (see crushReduction), so a 1080-wide
  * file draws the identical 720/1080 reduction a 4K upload does: the left half
@@ -43,7 +43,7 @@ function seeded(seed: number): () => number {
 }
 
 /* What TikTok served for the patched upload the clip is cut from. */
-const SERVED = { width: 2160, height: 3840, fps: 60, bitrateMbps: 21.9 };
+const SERVED = { width: 2160, height: 3840, fps: 60, bitrateMbps: 22.8 };
 
 interface Props {
   /** The pristine rendition, re-encoded for the web. */
@@ -162,7 +162,7 @@ export default function CompareStage({ src, hand = true }: Props) {
         />
       </Stage>
       <figcaption className="mx-auto mt-9 max-w-[560px] text-center text-[12.5px] leading-relaxed text-dim">
-        The right half is a Pristine-patched 4K60 upload — 2160×3840, 60fps, 21.9 Mbps — the
+        The right half is a Pristine-patched 4K60 upload — 2160×3840, 60fps, 22.8 Mbps — the
         file TikTok serves back byte for byte. The left half is that same footage drawn at
         TikTok&rsquo;s measured delivery for an ordinary upload, 720×1280 at 2.9 Mbps — the same
         preview the tool shows for your own video. Engagement numbers are illustrative.
