@@ -48,6 +48,9 @@ export default async function AccountPage() {
    * until the date, and says so.
    */
   const showPlan = !!ent && (live || ent.state === 'grace');
+  /* The owner has no plan and needs none; saying "No active plan" at them
+   * reads as a fault when the tool is working perfectly well. */
+  const owner = access.state === 'owner';
   const suspendedForDispute = !!ent?.revokedAt && ent.revokedReason === 'dispute';
 
   /* In UTC, like the disclosure the customer agreed to (plans.ts): this
@@ -69,14 +72,18 @@ export default async function AccountPage() {
           {!showPlan ? (
             <>
               <p className="mt-3 text-[15px]">
-                {suspendedForDispute ? 'Access is suspended.' : 'No active plan.'}
+                {suspendedForDispute ? 'Access is suspended.' : owner ? 'Owner account.' : 'No active plan.'}
               </p>
               {suspendedForDispute && (
                 <p className="mt-2 text-[14px] leading-relaxed text-bad">
                   There is a payment dispute on this account. Please contact support.
                 </p>
               )}
-              {access.ok && access.dailyRemaining > 0 ? (
+              {owner ? (
+                <p className="mt-2 text-[14px] leading-relaxed text-muted">
+                  Owner account: downloads are unmetered, and there is nothing to subscribe to.
+                </p>
+              ) : access.ok && access.dailyRemaining > 0 ? (
                 <p className="mt-2 text-[14px] leading-relaxed text-muted">
                   You have <span className="tabular text-text">{access.dailyRemaining}</span> bought{' '}
                   {access.dailyRemaining === 1 ? 'download' : 'downloads'} to use
@@ -90,7 +97,9 @@ export default async function AccountPage() {
               )}
               {/* With bought downloads in hand the daily action is the tool;
                   the plans are the primary only when there is nothing to spend. */}
-              {access.ok && access.dailyRemaining > 0 ? (
+              {owner ? (
+                <Link href="/app" className="pill pill-primary mt-6">Open the tool</Link>
+              ) : access.ok && access.dailyRemaining > 0 ? (
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <Link href="/app" className="pill pill-primary">Use a download</Link>
                   <Link href="/pricing" className="pill pill-ghost">See plans</Link>

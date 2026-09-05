@@ -19,6 +19,7 @@ import {
 import { PLANS, disclosure } from '../src/lib/plans';
 import { isScheduledToEnd } from '../src/lib/billing/sync';
 import { planForPriceId, priceConfigProblems, priceIdForPlan } from '../src/lib/billing/stripe';
+import { isOwnerEmail } from '../src/lib/owner';
 
 let pass = 0;
 let fail = 0;
@@ -278,6 +279,38 @@ ok('a subscription with no tier grants nothing',
   env.STRIPE_PRICE_WEEK = saved.week; env.STRIPE_PRICE_MONTH = saved.month; env.STRIPE_PRICE_YEAR = saved.year;
   env.STRIPE_PRICE_WEEK_LEGACY = saved.weekOld; env.STRIPE_PRICE_MONTH_LEGACY = saved.monthOld;
   env.STRIPE_PRICE_YEAR_LEGACY = saved.yearOld;
+}
+
+/* ---- the owner list ------------------------------------------------------ */
+
+/*
+ * This is the one check that lets an account past the meter, so the two
+ * failure modes worth pinning are: an unset variable must grant NOBODY
+ * anything, and a stranger must never match.
+ */
+{
+  const env = process.env;
+  const saved = env.PRISTINE_OWNER_EMAILS;
+
+  delete env.PRISTINE_OWNER_EMAILS;
+  ok('unset grants nobody anything', !isOwnerEmail('samwells711@gmail.com'));
+
+  env.PRISTINE_OWNER_EMAILS = '';
+  ok('empty grants nobody anything', !isOwnerEmail('samwells711@gmail.com'));
+
+  env.PRISTINE_OWNER_EMAILS = ' Samwells711@Gmail.com , second@example.com ';
+  ok('the owner matches whatever the casing', isOwnerEmail('samwells711@gmail.com'));
+  ok('and whatever the spacing in the list', isOwnerEmail('second@example.com'));
+  ok('the address is matched after trimming', isOwnerEmail('  samwells711@gmail.com  '));
+  ok('a stranger is not an owner', !isOwnerEmail('someone@example.com'));
+  ok('no address at all is not an owner', !isOwnerEmail(null) && !isOwnerEmail(''));
+  /* A gmail alias reaches the owner's own inbox, so nobody else can receive
+   * its sign-in code -- but it is deliberately not treated as the owner,
+   * because loose matching is how a list widens by accident. */
+  ok('a gmail alias is not silently included', !isOwnerEmail('samwells711+x@gmail.com'));
+
+  if (saved === undefined) delete env.PRISTINE_OWNER_EMAILS;
+  else env.PRISTINE_OWNER_EMAILS = saved;
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

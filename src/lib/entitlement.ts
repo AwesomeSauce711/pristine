@@ -5,6 +5,7 @@ import { and, count, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db';
 import { lookupSession, type SessionUser } from '@/lib/auth';
 import { DEV_UNLOCK_COOKIE, DEV_USER, devUnlockAvailable } from '@/lib/dev-access';
+import { isOwnerEmail } from '@/lib/owner';
 import { PLANS } from '@/lib/plans';
 
 /*
@@ -113,6 +114,29 @@ export async function resolveAccess(exec: DbReader = db()): Promise<Access> {
    */
   const user = await lookupSession();
   if (!user) return DENIED('not_signed_in');
+
+  /*
+   * The owner's own account: no meter. Jobs are still written to patch_jobs
+   * exactly as anyone else's are, so the history and the audit trail are
+   * whole -- they are simply never counted, because this returns before the
+   * counting. See src/lib/owner.ts for why an authenticated owner getting
+   * more is not the same as a new way in.
+   */
+  if (isOwnerEmail(user.email)) {
+    return {
+      ok: true,
+      user,
+      state: 'owner',
+      accessUntil: null,
+      tier: null,
+      /* A cap of 0 is how the pages already say "no counter to show". */
+      dailyCap: 0,
+      refillsToday: 0,
+      dailyRemaining: Number.MAX_SAFE_INTEGER,
+      periodRemaining: Number.MAX_SAFE_INTEGER,
+      resetsAt: null,
+    };
+  }
 
   const rows = await exec
     .select()
