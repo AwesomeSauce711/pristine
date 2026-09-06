@@ -33,6 +33,10 @@ export interface ScanResult {
   /** The ftyp bytes, kept locally for reassembly. */
   ftyp: Uint8Array;
 
+  /** The File the scan actually read. Usually the one given; a File that the
+   *  browser reported as 0 bytes is re-materialised from its bytes, and every
+   *  later read must use this one. */
+  file: File;
   fileName: string;
   fileSize: number;
   durationSec: number;
@@ -158,16 +162,53 @@ function describeVideo(moov: Uint8Array, videoTrak: Box): VideoDescription {
   return { codec, profile: '', level: '', codedSize };
 }
 
-export async function scanFile(file: File): Promise<ScanResult> {
-  if (file.size < 64) {
-    throw new Mp4Error('too_small', 'That file is too small to be a video.');
+/*
+ * A File that reports 0 bytes is not always empty. Chrome hands one over for
+ * a file that lives online-only (OneDrive, iCloud Drive, Google Drive
+ * placeholders), for a file dragged out of a zip folder, and occasionally
+ * for a Photos pick that has not finished exporting. Everything below reads
+ * by `file.size`, so such a file would be refused as "not an MP4" for the
+ * wrong reason. Read the bytes anyway; if the browser can produce them, use
+ * them, and only if it truly has none say so in words that name the cause.
+ */
+async function materialise(file: File): Promise<File> {
+  if (file.size > 0) return file;
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    bytes = new ArrayBuffer(0);
   }
+  if (bytes.byteLength === 0) {
+    throw new Mp4Error(
+      'empty_file',
+      'The browser handed over an empty file (0 bytes). If it is stored online-only '
+      + '(OneDrive, iCloud Drive, Google Drive), open the folder and download it fully first, '
+      + 'or pick it with the Choose file button instead of dragging.',
+    );
+  }
+  return new File([bytes], file.name, { type: file.type, lastModified: file.lastModified });
+}
+
+export async function scanFile(input: File): Promise<ScanResult> {
+  /* No size floor: any file that carries ftyp, moov and mdat is a video here,
+   * however short. A file that does not is told so, not told it is "small". */
+  const file = await materialise(input);
 
   const top = await locateTopLevel(file);
   const ftypBox = top.find((b) => b.type === 'ftyp');
   const moovBox = top.find((b) => b.type === 'moov');
   const mdatBox = top.find((b) => b.type === 'mdat');
 
+  /* An MP4 header with no moov or mdat behind it is what a file looks like
+   * while an editor or HandBrake is still writing it -- dropped a moment too
+   * early. Say that, rather than calling a real video "not an MP4". */
+  if (ftypBox && (!moovBox || !mdatBox)) {
+    throw new Mp4Error(
+      'unfinished',
+      'This file looks unfinished. If it is still exporting, wait for the export to complete and drop it again.',
+    );
+  }
   if (!ftypBox || !moovBox || !mdatBox) {
     throw new Mp4Error(
       'not_mp4',
@@ -234,6 +275,7 @@ export async function scanFile(file: File): Promise<ScanResult> {
     moov,
     ftyp,
 
+    file,
     fileName: file.name,
     fileSize: file.size,
     durationSec,

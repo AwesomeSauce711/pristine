@@ -429,8 +429,10 @@ export default function AppPage() {
       }
       const result = await scanFile(f);
       setScan(result);
-      setFile(f);
-      setUrl(URL.createObjectURL(f));
+      /* result.file, not f: a File the browser reported as 0 bytes has been
+       * re-read into a real one, and the patch step must read that one. */
+      setFile(result.file);
+      setUrl(URL.createObjectURL(result.file));
       setStage('ready');
     } catch (e) {
       setError(e instanceof Mp4Error ? e.message : 'That file could not be read as an MP4.');

@@ -91,7 +91,10 @@ console.log('\n  refusals');
     ok(label, msg !== null && msg.includes(want), msg ?? 'did not throw');
   };
 
-  await refuses('a text file', new File([new TextEncoder().encode('not a video at all')], 'x.mp4'), 'too small');
+  await refuses('a text file', new File([new TextEncoder().encode('not a video at all')], 'x.mp4'), 'does not look like an MP4');
+  await refuses('a genuinely empty file', new File([], 'x.mp4'), 'empty file');
+  /* ftyp alone: what a file looks like mid-export. */
+  await refuses('an unfinished export', new File([new Uint8Array([0,0,0,32, 0x66,0x74,0x79,0x70, 0x69,0x73,0x6f,0x6d, 0,0,2,0, 0x69,0x73,0x6f,0x6d,0x69,0x73,0x6f,0x32,0x61,0x76,0x63,0x31,0x6d,0x70,0x34,0x31])], 'x.mp4'), 'unfinished');
   await refuses('random bytes', new File([new Uint8Array(4096)], 'x.mp4'), 'does not look like an MP4');
 }
 
