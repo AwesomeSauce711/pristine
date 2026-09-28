@@ -36,7 +36,7 @@ To use `pristine4k.com`, put that name in `.github/pages-domain`, run `npm run p
 
 ## Donations
 
-Using Pristine is free. Donations are optional and do not unlock features. Once the project owner has created a Buy Me a Coffee page, set `NEXT_PUBLIC_BUY_ME_A_COFFEE_URL` to its full `https://buymeacoffee.com/...` URL before publishing. The footer then shows the donation link. Add the same link to this README and the repository's About section.
+Using Pristine is free. Donations are optional and do not unlock features. You can [buy the project a coffee](https://buymeacoffee.com/pristine4k) if you want to support it.
 
 ## Contributing
 

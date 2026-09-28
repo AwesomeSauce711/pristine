@@ -12,7 +12,7 @@ import { buildPatchedMoov } from '@/lib/mp4/patch';
 import { assemble, scanFile, type ScanResult } from '@/lib/mp4/scan';
 
 const HeroField = dynamic(() => import('@/components/three/HeroField'), { ssr: false });
-const DONATION_URL = process.env.NEXT_PUBLIC_BUY_ME_A_COFFEE_URL;
+const DONATION_URL = 'https://buymeacoffee.com/pristine4k';
 const GITHUB_URL = 'https://github.com/AwesomeSauce711/pristine';
 
 export default function Home() {
@@ -146,7 +146,7 @@ export default function Home() {
           <footer className="flex flex-wrap items-center justify-between gap-5 border-t border-white/10 py-7 text-sm text-muted">
             <p>Pristine is free for everyone.</p>
             <div className="flex flex-wrap items-center gap-5">
-              {DONATION_URL ? <a href={DONATION_URL} target="_blank" rel="noopener noreferrer" className="text-text hover:text-accent-soft">☕ Buy me a coffee ↗</a> : <span title="Donation page is being set up">☕ Donations coming soon</span>}
+              <a href={DONATION_URL} target="_blank" rel="noopener noreferrer" className="text-text hover:text-accent-soft">☕ Buy me a coffee ↗</a>
               <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="hover:text-text">Source code ↗</a>
               <Link href="/legal/privacy" className="hover:text-text">Privacy</Link>
             </div>
