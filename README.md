@@ -28,13 +28,15 @@ npm run build
 
 ## Publish
 
-The included GitHub Actions workflow builds and publishes the site on GitHub Pages when `main` changes. In the repository's **Settings → Pages**, choose **GitHub Actions** as the source. With no custom domain, it builds for `https://AwesomeSauce711.github.io/pristine/`.
+The site is published from the `gh-pages` branch at <https://awesomesauce711.github.io/pristine/>. The repository's **Settings → Pages** source is **Deploy from a branch**, using `gh-pages` and `/`.
 
-To use `pristine4k.com`, set the repository variable `CUSTOM_DOMAIN` to `pristine4k.com` and set the same address in **Settings → Pages → Custom domain**. Point the domain's DNS `A` records to the GitHub Pages addresses in [GitHub's current instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site), and point `www` to `AwesomeSauce711.github.io`. Remove the old Railway DNS records only when the new site is ready. The Pages custom-domain setting handles the domain; a `CNAME` file is unnecessary for an Actions deployment. Once the domain serves the new site reliably, cancel the old Railway service to stop any recurring hosting charge.
+After changing the source, run `npm run publish` to build and push the static site. It uses your existing Git credentials. GitHub Actions cannot run on the owner's account while GitHub reports a billing lock, so publishing is a local command for now.
+
+To use `pristine4k.com`, put that name in `.github/pages-domain`, run `npm run publish` again, and set the same name in **Settings → Pages → Custom domain**. Point the domain's DNS `A` records to the GitHub Pages addresses in [GitHub's instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site), and point `www` to `AwesomeSauce711.github.io`. Change the DNS only after the custom-domain build is ready. Once the domain serves the new site, cancel the old Railway service to stop any recurring hosting charge.
 
 ## Donations
 
-Using Pristine is free. Donations are optional and do not unlock features. Once the project owner has created a Buy Me a Coffee page, set `NEXT_PUBLIC_BUY_ME_A_COFFEE_URL` to its full `https://buymeacoffee.com/...` URL before building. The footer then shows the donation link. Add the same link to this README and the repository's About section.
+Using Pristine is free. Donations are optional and do not unlock features. Once the project owner has created a Buy Me a Coffee page, set `NEXT_PUBLIC_BUY_ME_A_COFFEE_URL` to its full `https://buymeacoffee.com/...` URL before publishing. The footer then shows the donation link. Add the same link to this README and the repository's About section.
 
 ## Contributing
 
