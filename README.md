@@ -30,7 +30,7 @@ npm run build
 
 The site is published from the `gh-pages` branch at <https://awesomesauce711.github.io/pristine/>. The repository's **Settings → Pages** source is **Deploy from a branch**, using `gh-pages` and `/`.
 
-After changing the source, run `npm run publish` to build and push the static site. It uses your existing Git credentials. GitHub Actions cannot run on the owner's account while GitHub reports a billing lock, so publishing is a local command for now.
+After changing the source, run `npm run publish` to build and push the static site. It uses your existing Git credentials.
 
 To use `pristine4k.com`, put that name in `.github/pages-domain`, run `npm run publish` again, and set the same name in **Settings → Pages → Custom domain**. Point the domain's DNS `A` records to the GitHub Pages addresses in [GitHub's instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site), and point `www` to `AwesomeSauce711.github.io`. Change the DNS only after the custom-domain build is ready. Once the domain serves the new site, cancel the old Railway service to stop any recurring hosting charge.
 
