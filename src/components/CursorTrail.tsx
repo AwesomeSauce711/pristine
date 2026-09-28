@@ -18,9 +18,8 @@ import { stillQuery } from '@/lib/scene-tier';
  * page beneath can feel. The loop runs only while something is alive and
  * stops the moment the last particle has faded.
  *
- * MOUSE ONLY
- * A finger does not hover, and a trail under a scrolling thumb is noise; the
- * pointer type is checked and touch is ignored. Reduced motion sheds nothing.
+ * A finger does not hover, so the trail ignores touch movement. A short tap
+ * still makes a heart burst. Reduced motion sheds nothing.
  */
 
 type Kind = 'heart' | 'comment' | 'bookmark' | 'share';
@@ -96,8 +95,8 @@ export default function CursorTrail() {
     if (!canvas) return;
     if (typeof window.matchMedia === 'function') {
       if (stillQuery().matches) return;
-      if (window.matchMedia('(hover: none)').matches) return;
     }
+    const hasHover = !window.matchMedia?.('(hover: none)').matches;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -160,15 +159,15 @@ export default function CursorTrail() {
       }
     };
 
-    const spawn = (x: number, y: number, kind?: Kind) => {
+    const spawn = (x: number, y: number, kind?: Kind, burst?: { vx: number; vy: number }) => {
       if (alive.length >= MAX_ALIVE) alive.shift();
       alive.push({
         kind: kind ?? KINDS[Math.floor(Math.random() * KINDS.length)],
         x: x + (Math.random() - 0.5) * 8,
         y: y + (Math.random() - 0.5) * 8,
-        vx: (Math.random() - 0.5) * 22,
-        vy: -between(RISE),
-        size: between(SIZE),
+        vx: burst?.vx ?? (Math.random() - 0.5) * 22,
+        vy: burst?.vy ?? -between(RISE),
+        size: burst ? between([15, 24]) : between(SIZE),
         rot: (Math.random() - 0.5) * 0.6,
         spin: (Math.random() - 0.5) * 1.6,
         born: performance.now(),
@@ -178,7 +177,7 @@ export default function CursorTrail() {
     };
 
     const onMove = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') return;
+      if (!hasHover || e.pointerType === 'touch') return;
       const x = e.clientX;
       const y = e.clientY;
       if (Number.isNaN(lastX)) {
@@ -200,6 +199,28 @@ export default function CursorTrail() {
       lastX = NaN;
       lastY = NaN;
     };
+    let down: { id: number; x: number; y: number; time: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      down = { id: e.pointerId, x: e.clientX, y: e.clientY, time: performance.now() };
+    };
+    const onUp = (e: PointerEvent) => {
+      const start = down;
+      down = null;
+      if (!start || start.id !== e.pointerId) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (dx * dx + dy * dy > 64 || performance.now() - start.time > 600) return;
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+        const speed = between([65, 145]);
+        spawn(e.clientX, e.clientY, 'heart', {
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 28,
+        });
+      }
+    };
+    const onCancel = () => { down = null; };
     const onVisibility = () => {
       if (document.hidden) {
         cancelAnimationFrame(raf);
@@ -208,6 +229,9 @@ export default function CursorTrail() {
       }
     };
     window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerdown', onDown, { passive: true });
+    window.addEventListener('pointerup', onUp, { passive: true });
+    window.addEventListener('pointercancel', onCancel, { passive: true });
     window.addEventListener('pointerleave', onLeave);
     document.addEventListener('mouseleave', onLeave);
     document.addEventListener('visibilitychange', onVisibility);
@@ -216,6 +240,9 @@ export default function CursorTrail() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('pointerleave', onLeave);
       document.removeEventListener('mouseleave', onLeave);
       document.removeEventListener('visibilitychange', onVisibility);

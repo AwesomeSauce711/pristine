@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import Wordmark from '@/components/Wordmark';
+import CursorTrail from '@/components/CursorTrail';
 import Starfield from '@/components/fx/Starfield';
 import RibbonField from '@/components/fx/RibbonField';
 import { Mp4Error } from '@/lib/mp4/boxes';
@@ -82,6 +83,7 @@ export default function Home() {
 
   return (
     <>
+      <CursorTrail />
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10"><Starfield /></div>
       <main id="main" className="relative min-h-[100svh] overflow-x-clip">
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
