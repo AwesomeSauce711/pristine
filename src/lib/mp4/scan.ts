@@ -9,10 +9,8 @@
  *   1. Show the user real, measured properties of their file. Reading their
  *      codec, level and frame rate back to them is the most direct way to show
  *      the tool actually understands the file rather than guessing.
- *   2. Produce the small descriptor the server needs to patch it, and catch the
- *      one condition the patch cannot handle — a video with no audio track —
- *      BEFORE any payment is asked for. Discovering that after taking money is
- *      a refund and a plausible chargeback.
+ *   2. Produce the small descriptor the local patcher needs. Videos with no
+ *      audio track are supported by adding a silent track during the patch.
  */
 
 import {
@@ -21,14 +19,14 @@ import {
 } from './boxes';
 
 export interface ScanResult {
-  /** What the server needs to build the patched moov. */
+  /** What the local patcher needs to build the patched moov. */
   descriptor: {
     ftypLen: number;
     moovLen: number;
     payloadStart: number;
     payloadLen: number;
   };
-  /** The moov bytes, to be sent to the server. Small. */
+  /** The moov bytes, kept on the device for the patcher. */
   moov: Uint8Array;
   /** The ftyp bytes, kept locally for reassembly. */
   ftyp: Uint8Array;
@@ -297,7 +295,7 @@ export async function scanFile(input: File): Promise<ScanResult> {
 }
 
 /**
- * Assemble the finished file from the user's own bytes plus what the server
+ * Assemble the finished file from the user's own bytes plus what the patcher
  * returned.
  *
  * The media payload is passed through as a `Blob` slice of the original File,

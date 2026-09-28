@@ -1,17 +1,17 @@
 /*
  * verify:silent — a file with NO audio track goes through the patcher and
  * comes out as a valid file with two AAC tracks: the silent one supplied for
- * it, and the decoy cloned from that. Uses the landing clip, which has no
- * audio. If ffprobe is on the PATH the streams are checked with it as well.
+ * it, and the decoy cloned from that. Uses a tiny generated test fixture.
+ * If ffprobe is on the PATH the streams are checked with it as well.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { scanFile, assemble } from '../src/lib/mp4/scan';
-import { buildPatchedMoov } from '../src/lib/mp4/patch.server';
+import { buildPatchedMoov } from '../src/lib/mp4/patch';
 
-const src = process.argv[2] ?? 'public/demo/pristine.mp4';
+const src = process.argv[2] ?? 'tests/fixtures/no-audio.mp4';
 const bytes = fs.readFileSync(src);
 const file = new File([bytes], path.basename(src), { type: 'video/mp4' });
 const scan = await scanFile(file);

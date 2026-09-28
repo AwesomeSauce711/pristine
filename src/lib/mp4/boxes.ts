@@ -1,13 +1,8 @@
 /*
  * boxes.ts — generic ISO-BMFF (MP4) box reading.
  *
- * Deliberately contains nothing proprietary. This is the half of the MP4 code
- * that ships to the browser: walking the box tree, reading sample tables, and
- * identifying tracks. It is the same work any MP4 inspector does.
- *
- * The patch itself — what gets changed and by how much — lives in
- * `src/lib/mp4/patch.ts`, which is server-only and never bundled for the client.
- * See `src/lib/mp4/README.md` for why the split is drawn here.
+ * Walks the box tree, reads sample tables, and identifies tracks. The browser
+ * also uses these helpers to patch the selected file locally.
  *
  * SECURITY: every count in a sample table is read straight out of the file and
  * is therefore attacker-controlled. Reading a u32 past the end of the buffer

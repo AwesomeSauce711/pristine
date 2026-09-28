@@ -1,1 +1,0 @@
-ALTER TABLE "trial_grants" ADD COLUMN "pm_type" text;

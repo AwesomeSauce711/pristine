@@ -1,1 +1,0 @@
-ALTER TABLE "patch_jobs" ADD COLUMN "neutralised_edts" boolean;
