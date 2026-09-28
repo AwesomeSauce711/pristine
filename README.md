@@ -32,7 +32,7 @@ The site is published from the `gh-pages` branch at <https://awesomesauce711.git
 
 After changing the source, run `npm run publish` to build and push the static site. It uses your existing Git credentials.
 
-To use `pristine4k.com`, put that name in `.github/pages-domain`, run `npm run publish` again, and set the same name in **Settings → Pages → Custom domain**. Point the domain's DNS `A` records to the GitHub Pages addresses in [GitHub's instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site), and point `www` to `AwesomeSauce711.github.io`. Change the DNS only after the custom-domain build is ready. Once the domain serves the new site, cancel the old Railway service to stop any recurring hosting charge.
+The custom domain is `pristine4k.com` in `.github/pages-domain`. To connect it, run `npm run publish` and set the same name in **Settings → Pages → Custom domain**. In Namecheap Advanced DNS, set the `@` ALIAS and `www` CNAME to `awesomesauce711.github.io`, as described in [GitHub's domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site). Keep the email records. Once the domain serves the new site, cancel the old Railway service to stop any recurring hosting charge.
 
 ## Donations
 
