@@ -28,11 +28,11 @@ npm run build
 
 ## Publish
 
-The site is published from the `gh-pages` branch at <https://awesomesauce711.github.io/pristine/>. The repository's **Settings → Pages** source is **Deploy from a branch**, using `gh-pages` and `/`.
+The site is live at <https://pristine4k.com/>. GitHub Pages publishes the `gh-pages` branch from `/` and serves the custom domain over HTTPS.
 
 After changing the source, run `npm run publish` to build and push the static site. It uses your existing Git credentials.
 
-The custom domain is `pristine4k.com` in `.github/pages-domain`. To connect it, run `npm run publish` and set the same name in **Settings → Pages → Custom domain**. In Namecheap Advanced DNS, set the `@` ALIAS and `www` CNAME to `awesomesauce711.github.io`, as described in [GitHub's domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site). Keep the email records. Once the domain serves the new site, cancel the old Railway service to stop any recurring hosting charge.
+The custom domain is recorded in `.github/pages-domain`. Namecheap points the `@` ALIAS and `www` CNAME to `awesomesauce711.github.io`; existing email records remain separate. Railway is no longer required for Pristine.
 
 ## Donations
 
