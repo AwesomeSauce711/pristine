@@ -2,7 +2,9 @@
 
 Free, open-source video conversion and TikTok upload preparation. Choose **4K/60**, **1080p/120**, or **4K/120**. Your video is processed on your own device.
 
-**Last updated: September 28, 2026.** The current version includes all three presets, faster preparation for matching videos, repaired end-of-video timing, optional sound effects, and a one-page desktop layout. The two usage options and local setup steps are below.
+> **Effect on views is untested.** We have not tested whether this method increases, decreases, or leaves TikTok views, reach, or recommendations unchanged. The quality and playback tests do not establish its effect on views.
+
+**Last updated: September 29, 2026.** The current version includes all three presets, faster preparation for matching videos, repaired end-of-video timing, optional sound effects, and a one-page desktop layout. The two usage options and local setup steps are below.
 
 ## Two ways to use Pristine
 
@@ -126,9 +128,11 @@ The domain is recorded in `.github/pages-domain`. If hosting a fork, configure y
 
 Discord: **awesomesaucebs**
 
-## Donations
+## Support the project
 
 Donations help fund the creation of these free tools. Donations are optional and do not unlock features. [Buy me a coffee](https://buymeacoffee.com/pristine4k).
+
+A free way to support this project is to [star the GitHub repository](https://github.com/AwesomeSauce711/pristine). Open the repository and click **Star** near the top of the page.
 
 ## License and contributions
 

@@ -172,16 +172,16 @@ export default function Home() {
           </div>
 
           <section aria-label="Support these free tools" className={`${styles.donation} flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[.025]`}>
-            <p className="text-sm leading-relaxed text-muted">Donations help fund the creation of these free tools</p>
+            <div className="space-y-1 text-sm leading-relaxed text-muted">
+              <p>Donations help fund the creation of these free tools</p>
+              <p>A free way to support this project is to star our GitHub repo <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="Star Pristine on GitHub (opens in a new tab)" title="Open GitHub, then click Star" className="text-accent-soft underline underline-offset-4 hover:text-text">here</a>.</p>
+            </div>
             <a href={DONATION_URL} target="_blank" rel="noopener noreferrer" className="rounded-full border border-accent-soft/40 px-4 py-2 text-sm text-accent-soft transition hover:bg-accent/15">☕ Buy me a coffee ↗</a>
           </section>
 
           <footer className={`${styles.footer} flex flex-wrap items-center justify-between gap-5 text-xs text-muted`}>
             <p>Questions/bugs? Discord: <span className="text-text">awesomesaucebs</span></p>
-            <div className="flex flex-wrap items-center gap-5">
-              <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="hover:text-text">Source code ↗</a>
-              <Link href="/legal/privacy" className="hover:text-text">Privacy</Link>
-            </div>
+            <Link href="/legal/privacy" className="hover:text-text">Privacy</Link>
           </footer>
         </div>
       </main>
