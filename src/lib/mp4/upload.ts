@@ -1,5 +1,5 @@
 /**
- * Local single-track upload preparation, based on the container properties
+ * Local upload preparation, based on the container properties
  * measured in September 2026 tests. Video packet bytes are never re-encoded.
  * See docs/upload-tests.md for evidence and limitations.
  */
@@ -7,7 +7,7 @@ import {
   type Box, Mp4Error, ascii, audioTraks, be32, buildBox, cat, children,
   findBox, findPath, fourcc, nextTrackIdOffset, offsetCount, parseStsc,
   parseStsz, parseStts, putU32, putU64, readOffset, trackIdOffset, traksOf,
-  u16, u32, u64,
+  u16, u32, u64, videoTraks,
 } from './boxes';
 import { buildSilentTrak } from './patch';
 import type { ScanResult } from './scan';
@@ -152,6 +152,8 @@ export function prepareUpload(scan: ScanResult, audioMode: UploadAudioMode = 'co
   const mdatHeader = payloadSize + 8 <= 0xffffffff ? cat([be32(payloadSize + 8), ascii('mdat')])
     : cat([be32(1), ascii('mdat'), bytes64(payloadSize + 16)]);
   const trackList = traksOf(data);
+  const videoPositions = new Set(videoTraks(data).map(track => track.pos));
+  const encodedMovieTicks = encodedFrameRate ? Math.round(scan.videoSamples * movieScale / encodedFrameRate) : undefined;
 
   function rebuildTrack(track: Box, shift: number, extraOffset: number, padAudio = true): Uint8Array {
     const pick = (names: string[]) => findPath(data, names, track.pos + 8, track.pos + track.size);
@@ -159,15 +161,17 @@ export function prepareUpload(scan: ScanResult, audioMode: UploadAudioMode = 'co
     if (!tkhd || !mdhd || !stbl) throw new Mp4Error('incomplete_track', 'An MP4 track has incomplete headers.');
     const audioHere = padAudio && track.pos === audioTrack.pos;
     const rate = scale(data, mdhd);
-    let mediaTicks = duration(data, mdhd), movieTicks = duration(data, tkhd);
+    const timing = findBox(data, 'stts', stbl.pos + 8, stbl.pos + stbl.size);
+    if (!timing || !rate) throw new Mp4Error('no_timing', 'A track has no valid sample timing.');
+    const originalTiming = parseStts(data, timing);
+    const originalTicks = originalTiming.reduce((sum, [count, delta]) => sum + count * delta, 0);
+    let mediaTicks = originalTicks, movieTicks = duration(data, tkhd);
     let encodedTiming: number[][] | null = null;
     const edit = pick(['edts', 'elst']);
-    if (encodedFrameRate && track.pos !== audioTrack.pos) {
+    if (encodedFrameRate && videoPositions.has(track.pos)) {
       // Only used after the converter has actually generated the requested frames.
       // AAC priming may otherwise stretch the first/last video sample in the muxer.
-      const timing = findBox(data, 'stts', stbl.pos + 8, stbl.pos + stbl.size);
-      if (!timing) throw new Mp4Error('no_timing', 'The video frame timing is missing.');
-      const count = parseStts(data, timing).reduce((sum, [n]) => sum + n, 0);
+      const count = originalTiming.reduce((sum, [n]) => sum + n, 0);
       encodedTiming = [];
       for (let i = 0; i < count; i++) {
         const delta = Math.round((i + 1) * rate / encodedFrameRate) - Math.round(i * rate / encodedFrameRate);
@@ -177,27 +181,27 @@ export function prepareUpload(scan: ScanResult, audioMode: UploadAudioMode = 'co
       }
       mediaTicks = Math.round(count * rate / encodedFrameRate);
       movieTicks = Math.round(mediaTicks * movieScale / rate);
-    } else if (edit) {
-      if (u32(data, edit.pos + 12) !== 1) throw new Mp4Error('complex_edits', 'Export a flattened MP4 before preparing this edited timeline.');
-      const v1 = data[edit.pos + 8] === 1;
-      movieTicks = v1 ? u64(data, edit.pos + 16) : u32(data, edit.pos + 16);
-      const startAt = edit.pos + (v1 ? 24 : 20);
-      const start = u32(data, startAt) === 0xffffffff ? 0 : v1 ? u64(data, startAt) : u32(data, startAt);
-      mediaTicks = start + Math.round(movieTicks * rate / movieScale);
     }
+    // Preserve existing edits and every original sample duration. Removing the
+    // edits and pushing their offset into the last frame caused an end hold.
+    // The added audio lives outside the original presentation interval.
+    let suppliedEdit: Uint8Array | undefined;
+    if (track.pos === audioTrack.pos && !edit) {
+      if (encodedMovieTicks !== undefined) movieTicks = Math.min(movieTicks, encodedMovieTicks);
+      const wide = movieTicks > 0xffffffff;
+      suppliedEdit = buildBox('edts', buildBox('elst', cat([
+        be32(wide ? 0x01000000 : 0), be32(1),
+        ...(wide ? [bytes64(movieTicks), bytes64(0)] : [be32(movieTicks), be32(0)]), be32(0x00010000),
+      ])));
+    }
+    if (audioHere) mediaTicks += addedCount;
     const replacements = new Map<number, Uint8Array>([[tkhd.pos, setDuration(data, tkhd, movieTicks)], [mdhd.pos, setDuration(data, mdhd, mediaTicks)]]);
     const chunks = children(data, stbl.pos + 8, stbl.pos + stbl.size);
     const offsets = chunks.find(b => b.type === 'stco' || b.type === 'co64');
     if (!offsets) throw new Mp4Error('no_offsets', 'A track has no sample offsets.');
     for (const box of chunks) {
       if (box.type === 'stts') {
-        const entries = encodedTiming || parseStts(data, box), total = entries.reduce((s, [n, d]) => s + n * d, 0);
-        const delta = mediaTicks - total;
-        if (delta && entries.length) {
-          const last = entries[entries.length - 1];
-          if (last[1] + delta < 1 || last[1] + delta > 0xffffffff) throw new Mp4Error('bad_timing', 'This file has an unsupported timing offset.');
-          if (last[0] > 1) { last[0]--; entries.push([1, last[1] + delta]); } else last[1] += delta;
-        }
+        const entries = encodedTiming || parseStts(data, box);
         if (audioHere) entries.push([addedCount, 1]);
         replacements.set(box.pos, table('stts', entries));
       } else if (audioHere && box.type === 'stsc') {
@@ -213,15 +217,18 @@ export function prepareUpload(scan: ScanResult, audioMode: UploadAudioMode = 'co
         const wide = values.some(n => n > 0xffffffff);
         replacements.set(box.pos, buildBox(wide ? 'co64' : 'stco', cat([be32(0), be32(values.length), ...values.map(wide ? bytes64 : be32)])));
       } else if (audioHere && box.type === 'stsd') {
-        replacements.set(box.pos, audioDescription(data, box, Math.floor(realSizes.reduce((a, b) => a + b, 0) * 8 * rate / mediaTicks)));
+        replacements.set(box.pos, audioDescription(data, box, Math.floor(realSizes.reduce((a, b) => a + b, 0) * 8 * rate / originalTicks)));
       }
     }
     const rebuild = (box: Box): Uint8Array => {
       const replacement = replacements.get(box.pos);
       if (replacement) return replacement;
-      if (box.type === 'edts' || box.type === 'udta') return new Uint8Array(0);
-      if (['trak', 'mdia', 'minf', 'stbl'].includes(box.type))
-        return buildBox(box.type, cat(children(data, box.pos + 8, box.pos + box.size).map(rebuild)));
+      if ((box.type === 'edts' && encodedTiming) || box.type === 'udta') return new Uint8Array(0);
+      if (['trak', 'mdia', 'minf', 'stbl'].includes(box.type)) {
+        const parts = children(data, box.pos + 8, box.pos + box.size).map(rebuild);
+        if (box.type === 'trak' && suppliedEdit) parts.splice(1, 0, suppliedEdit);
+        return buildBox(box.type, cat(parts));
+      }
       return data.subarray(box.pos, box.pos + box.size);
     };
     const result = rebuild(track);

@@ -2,7 +2,7 @@
 
 Free, open-source video conversion and TikTok upload preparation. Choose **4K/60**, **1080p/120**, or **4K/120**. Your video is processed on your own device.
 
-**Last updated: September 28, 2026.** The current version includes all three presets, faster preparation for matching videos, optional sound effects, and a one-page desktop layout. This update adds complete local setup instructions and removes the Chrome extension.
+**Last updated: September 28, 2026.** The current version includes all three presets, faster preparation for matching videos, repaired end-of-video timing, optional sound effects, and a one-page desktop layout. The two usage options and local setup steps are below.
 
 ## Two ways to use Pristine
 
@@ -92,14 +92,14 @@ Download a fresh ZIP from this repository, extract it into a new folder, and rep
 - Resizes to the selected dimensions, keeps the picture's aspect ratio with padding, and repeats or drops frames to reach the selected frame rate.
 - Uses HEVC for 4K/120, and H.264 for the other presets when video encoding is needed.
 - Keeps the original compressed video when a matching MP4 can be prepared directly. If only its audio needs normalization, it copies the video packets and converts the first audio track to stereo AAC.
-- Prepares the MP4's audio sample tables and container metadata for upload, then checks the output dimensions and frame rate. This step never duplicates the video track or makes the video ten times longer. Silent files receive an AAC track.
+- Prepares the MP4's audio sample tables and container metadata for upload, then checks the output dimensions and frame rate. It preserves original video timing and presentation edits, keeps normal audio first, and bounds the extra audio track to the original presentation. This step never duplicates the video track or makes the video ten times longer. Silent files receive an AAC track.
 - Runs encoding in your browser, using its encoder when available and bundled FFmpeg WebAssembly otherwise. Optional click and file-selection sounds have a remembered mute setting.
 
 ## Limitations
 
 Pristine may not always work. TikTok can change quality at upload time or later. Upscaling does not create extra source detail, and repeating 30 fps frames does not create true 120 fps motion. A file's recorded frame rate is different from the frame rate actually displayed by TikTok.
 
-Published tests retained high-resolution files, but camera-roll playback and pauses at the end remain unresolved in the test group. See the [TikTok test results](docs/upload-tests.md). [Instagram comparisons](docs/instagram-tests.md) produced approximately 720p/30 playback for both tested files, so the website currently offers TikTok preparation only. Pristine is not affiliated with TikTok or ByteDance.
+Published 4K/60 and 4K/120 timing comparisons now loop normally on the tester's phone. The 120 fps file still appears to display fewer frames in TikTok. Saved copies can crash the phone's Photos app, including its information panel; that compatibility problem remains under investigation. See the [TikTok test results](docs/upload-tests.md). [Instagram comparisons](docs/instagram-tests.md) produced approximately 720p/30 playback for both tested files, so the website currently offers TikTok preparation only. Pristine is not affiliated with TikTok or ByteDance.
 
 ## Development and hosting
 

@@ -150,7 +150,7 @@ export async function convertForUpload(info: VideoInfo, selected: number, update
     copyVideo = original.width === width && original.height === height && Math.abs(original.fps - preset.fps) < 0.5
       && (selected !== 2 || original.codec === 'HEVC');
     if (copyVideo) {
-      const prepared = prepareUpload(original, 'compatible', selected !== 2);
+      const prepared = prepareUpload(original, 'compatible', true);
       const check = await scanFile(prepared);
       if (Math.abs(check.fps - preset.fps) < 0.5) return new File([prepared], name, { type: 'video/mp4' });
     }
@@ -165,7 +165,7 @@ export async function convertForUpload(info: VideoInfo, selected: number, update
   const scan = await scanFile(converted);
   if (scan.width !== width || scan.height !== height
     || (selected === 2 && scan.codec !== 'HEVC')) throw new Error('The encoder did not produce the selected quality. No incorrect file was saved.');
-  const prepared = prepareUpload(scan, 'compatible', selected !== 2, copyVideo ? undefined : preset.fps);
+  const prepared = prepareUpload(scan, 'compatible', true, copyVideo ? undefined : preset.fps);
   const final = await scanFile(prepared);
   if (Math.abs(final.fps - preset.fps) > 0.5) throw new Error('The prepared file did not retain the selected frame rate. No incorrect file was saved.');
   return new File([prepared], name, { type: 'video/mp4' });
