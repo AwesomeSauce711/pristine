@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque, Inter, Inter_Tight, JetBrains_Mono } from 'next/font/google';
 import CursorTrail from '@/components/CursorTrail';
+import Script from 'next/script';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${interTight.variable} ${bricolage.variable} ${mono.variable}`} suppressHydrationWarning>
       <body className="min-h-screen text-text antialiased">
+        <Script src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/coi-serviceworker.js`} strategy="beforeInteractive" />
         <a href="#main" className="skip-link">Skip to content</a>
         <CursorTrail />
         {children}

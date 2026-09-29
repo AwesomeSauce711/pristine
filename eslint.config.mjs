@@ -15,7 +15,13 @@ const eslintConfig = defineConfig([
     // Vendored, minified third-party code served as-is: the Draco mesh
     // decoder that unpacks the hand model (copied from three/examples).
     "public/draco/**",
+    // The standalone extension has its own parser and behavior checks in verify-report.cjs.
+    "extension/**",
+    "public/encoder/**",
+    "public/coi-serviceworker.js",
+    "artifacts/**",
   ]),
+  { files: ["scripts/verify-report.cjs"], rules: { "@typescript-eslint/no-require-imports": "off" } },
 ]);
 
 export default eslintConfig;

@@ -50,7 +50,7 @@ export interface ScanResult {
   level: string;
 
   audioTrackCount: number;
-  /** The patch clones an audio track to use as the decoy; without one it cannot run. */
+  /** Silent input can be prepared by supplying an AAC track. */
   hasAudio: boolean;
 
   /** True when moov sits after mdat — common straight out of an editor. */
@@ -194,6 +194,9 @@ export async function scanFile(input: File): Promise<ScanResult> {
   const file = await materialise(input);
 
   const top = await locateTopLevel(file);
+  if (top.some(b => b.type === 'moof') || top.filter(b => b.type === 'mdat').length > 1) {
+    throw new Mp4Error('fragmented', 'Export a regular, flattened MP4 before preparing this video.');
+  }
   const ftypBox = top.find((b) => b.type === 'ftyp');
   const moovBox = top.find((b) => b.type === 'moov');
   const mdatBox = top.find((b) => b.type === 'mdat');

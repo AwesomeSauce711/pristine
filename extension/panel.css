@@ -1,0 +1,1296 @@
+/*
+ * Panel styling — broadcast-QC instrument.
+ *
+ * DIRECTION
+ * This is a measurement tool that floats over someone else's page, so it reads
+ * as separate equipment rather than part of TikTok. The reference world is
+ * video QC hardware: graphite chassis, tally lamp, hard-edged rockers, tabular
+ * readouts, small-caps legends.
+ *
+ * THE ONE RULE THAT SHAPES EVERYTHING
+ * Colour is reserved for status. Never for chrome.
+ * Switches, the slider, buttons and the drawer are entirely monochrome; a
+ * control is "engaged" because its face turns light, not because it turns cyan.
+ * The only coloured things in the panel are reporting a fact — the tally rule,
+ * the lamp, the verdict accent, and the diagnostic boxes. That means a glance
+ * at colour is always a glance at state, which is the whole job of the panel.
+ *
+ * Consequences, deliberate: no gradient fills, no glow, no coloured shadows,
+ * no sheen. One neutral drop shadow, because the panel genuinely floats.
+ *
+ * TYPOGRAPHY
+ * Prose in the system grotesque; every number, gear name and identifier in
+ * monospace with tabular figures. Not decoration — it keeps `original_1080_0`
+ * unambiguous and makes columns of figures line up, which is what the panel is
+ * for. Legends are small-caps with wide tracking, the way equipment labels are.
+ *
+ * SCOPING
+ * Everything is under #tthd-panel / #tthd-overlay because this is injected into
+ * tiktok.com's document. Form controls are rebuilt from `appearance: none` so a
+ * host page's input styling cannot leak in.
+ */
+
+#tthd-panel {
+  /* Chassis — warm graphite, not blue-black. */
+  --ink:    #000000;
+  --body:   #000000;
+  --rail:   #0b0d0f;
+  --edge:   #282d33;
+  --edge-2: #343a41;
+
+  --type:   #e4e7e9;
+  --mute:   #8b939b;
+  --faint:  #626a72;
+
+  /* Signal lamps. Desaturated on purpose: these are indicators, not neon. */
+  --pass:   #57a877;
+  --hold:   #c69440;
+  --stop:   #c1585a;
+  --idle:   #4a5158;
+
+  --ease:   cubic-bezier(.4, 0, .2, 1);
+
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  width: 340px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+
+  background: var(--body);
+  color: var(--type);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  box-shadow: 0 18px 44px -14px rgba(0, 0, 0, .75);
+  font: 13px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------- tally rule */
+
+/* The signature. A broadcast tally is the canonical "what is this doing right
+   now" signal, readable from across a room, and it is the one element here
+   allowed to be bold. :has() lets it track the lamp's state class without the
+   rendering code needing to know the strip exists. */
+#tthd-panel::before {
+  content: '';
+  display: block;
+  height: 2px;
+  flex: none;
+  background: var(--idle);
+  transition: background .25s var(--ease);
+}
+#tthd-panel:has(.tthd-dot.tthd-good)::before { background: var(--pass); }
+#tthd-panel:has(.tthd-dot.tthd-warn)::before { background: var(--hold); }
+#tthd-panel:has(.tthd-dot.tthd-bad)::before  { background: var(--stop); }
+
+/* ------------------------------------------------------------------ header */
+
+#tthd-panel .tthd-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px 10px;
+  border-bottom: 1px solid var(--edge);
+  background: rgba(0, 0, 0, .55);
+  flex: none;
+}
+
+/* The lamp. A square, not a dot — instrument indicators are rectangular. */
+#tthd-panel .tthd-mark { display: flex; align-items: center; flex: none; }
+#tthd-panel .tthd-dot {
+  width: 7px; height: 7px;
+  border-radius: 1px;
+  background: var(--idle);
+  transition: background .25s var(--ease);
+}
+#tthd-panel .tthd-dot.tthd-good    { background: var(--pass); }
+#tthd-panel .tthd-dot.tthd-warn    { background: var(--hold); }
+#tthd-panel .tthd-dot.tthd-bad     { background: var(--stop); }
+#tthd-panel .tthd-dot.tthd-neutral { background: var(--idle); }
+
+#tthd-panel .tthd-titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+#tthd-panel .tthd-title { font-size: 12.5px; font-weight: 600; letter-spacing: .005em; }
+#tthd-panel .tthd-sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/*
+ * The loaded build, on screen.
+ *
+ * inject.js lives in the page's MAIN world, so reloading the extension does not
+ * replace it in a tab that is already open. When the panel is new and the page
+ * hook is old the only symptom is a report card quietly missing, and working
+ * that out has cost several round-trips of guessing. Printing the version where
+ * it can simply be read turns "did the reload take?" into a glance.
+ *
+ * Scoped under #tthd-panel like every other rule here: an unscoped .tthd-build
+ * would leak into the host page.
+ */
+#tthd-panel .tthd-build {
+  opacity: .55;
+  letter-spacing: .08em;
+}
+
+#tthd-panel .tthd-min {
+  margin-left: auto;
+  width: 22px; height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  color: var(--mute);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+#tthd-panel .tthd-min:hover { background: var(--rail); color: var(--type); border-color: var(--edge-2); }
+
+/* -------------------------------------------------------------- starfield */
+
+/*
+ * The field takes the panel's status colour, so the largest thing on screen is
+ * also the clearest statement of what the pipeline is doing. Grey when idle,
+ * green when it is up, amber on a warning, red when it needs attention.
+ */
+#tthd-panel .tthd-stars {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  --star: #4a525a;
+}
+#tthd-panel:has(.tthd-dot.tthd-good) .tthd-stars { --star: var(--pass); }
+#tthd-panel:has(.tthd-dot.tthd-warn) .tthd-stars { --star: var(--hold); }
+#tthd-panel:has(.tthd-dot.tthd-bad)  .tthd-stars { --star: var(--stop); }
+
+#tthd-panel .tthd-stars i {
+  position: absolute;
+  width: var(--s, 2px);
+  height: var(--s, 2px);
+  border-radius: 50%;
+  background: var(--star);
+  opacity: .5;
+  /* Two speeds: the near third drifts faster, which reads as depth. Travel is
+     kept short so the field never thins out at one edge. */
+  animation:
+    tthd-twinkle 3.6s ease-in-out infinite,
+    tthd-drift-y calc(19s - var(--z) * 8s) ease-in-out infinite;
+  animation-delay: var(--d, 0s), calc(var(--d, 0s) * -2.5);
+  transition: background .4s var(--ease);
+}
+@keyframes tthd-twinkle {
+  0%, 100% { opacity: .28; }
+  50%      { opacity: 1; }
+}
+@keyframes tthd-drift-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(14px); }
+}
+#tthd-panel .tthd-body > *:not(.tthd-stars) { position: relative; z-index: 1; }
+
+/* -------------------------------------------------------------------- body */
+
+#tthd-panel .tthd-body {
+  position: relative;
+  padding: 12px 13px 13px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1 1 auto;
+  transition: max-height .28s var(--ease), opacity .18s var(--ease), padding .28s var(--ease);
+  max-height: 200vh;
+  opacity: 1;
+}
+#tthd-panel.tthd-collapsed .tthd-body {
+  max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; overflow: hidden;
+}
+#tthd-panel .tthd-body::-webkit-scrollbar { width: 8px; }
+#tthd-panel .tthd-body::-webkit-scrollbar-track { background: transparent; }
+#tthd-panel .tthd-body::-webkit-scrollbar-thumb {
+  background: var(--edge); border-radius: 0; border: 3px solid transparent; background-clip: content-box;
+}
+
+/* ----------------------------------------------------------------- verdict */
+
+#tthd-panel .tthd-verdict {
+  position: relative;
+  padding: 10px 11px 10px 13px;
+  border: 1px solid var(--edge);
+  border-left-width: 2px;
+  border-left-color: var(--idle);
+  border-radius: 3px;
+  background: rgba(10, 12, 14, .74);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--mute);
+  transition: border-left-color .25s var(--ease), color .25s var(--ease);
+}
+#tthd-panel .tthd-verdict.tthd-good { border-left-color: var(--pass); color: #b6cfc0; }
+#tthd-panel .tthd-verdict.tthd-warn { border-left-color: var(--hold); color: #d6c3a1; }
+#tthd-panel .tthd-verdict.tthd-bad  { border-left-color: var(--stop); color: #d9b0b1; }
+
+/* ---------------------------------------------------------------- controls */
+
+#tthd-panel .tthd-ctl {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 12px;
+  cursor: pointer;
+  background: var(--rail);
+  border-bottom: 1px solid var(--edge);
+  transition: background .15s var(--ease);
+}
+#tthd-panel .tthd-ctl:last-child { border-bottom: none; }
+#tthd-panel .tthd-ctl:hover { background: #20252a; }
+
+#tthd-panel .tthd-ctl-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+#tthd-panel .tthd-ctl-text b {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--type);
+}
+#tthd-panel .tthd-ctl-text i {
+  font-style: normal;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--mute);
+}
+
+#tthd-panel .tthd-ctl input[type="checkbox"] {
+  position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none;
+}
+
+/* The rocker. Squared, hard travel, monochrome: engaged reads as a light face
+   with a dark throw, the way a panel switch does. No colour, because colour in
+   this panel means status and an engaged control is not a status. */
+#tthd-panel .tthd-switch {
+  position: relative;
+  transition: transform .12s var(--ease);
+  flex: none;
+  margin-top: 1px;
+  width: 34px; height: 18px;
+  border-radius: 2px;
+  background: var(--ink);
+  border: 1px solid var(--edge-2);
+  transition: background .18s var(--ease), border-color .18s var(--ease);
+}
+#tthd-panel .tthd-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 13px; height: 12px;
+  border-radius: 1px;
+  background: #4c545c;
+  transition: transform .18s var(--ease), background .18s var(--ease);
+}
+#tthd-panel input:checked + .tthd-switch {
+  background: var(--type);
+  border-color: var(--type);
+}
+#tthd-panel input:checked + .tthd-switch::after {
+  transform: translateX(15px);
+  background: var(--ink);
+}
+#tthd-panel input:focus-visible + .tthd-switch {
+  outline: 2px solid var(--mute);
+  outline-offset: 2px;
+}
+#tthd-panel input:disabled + .tthd-switch { opacity: .35; }
+#tthd-panel .tthd-ctl:has(input:disabled) { cursor: default; }
+#tthd-panel .tthd-ctl:has(input:disabled):hover { background: var(--rail); }
+#tthd-panel .tthd-ctl:has(input:disabled) .tthd-ctl-text { opacity: .5; }
+
+/* --------------------------------------------------------- the cadence strip */
+
+/* The stage holds the one control and the strip that explains it. */
+#tthd-panel .tthd-stage {
+  position: relative;
+  margin-top: 11px;
+  padding: 13px 13px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  background: rgba(10, 12, 14, .7);
+  overflow: hidden;
+  transition: border-color .3s var(--ease), background .3s var(--ease);
+}
+#tthd-panel.tthd-hd-on .tthd-stage { border-color: #2c3f35; background: rgba(9, 16, 12, .7); }
+
+#tthd-panel .tthd-cadence {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 24px;
+  margin-bottom: 13px;
+}
+#tthd-panel .tthd-cadence i {
+  display: block;
+  width: 2px;
+  height: 5px;
+  background: #2f363d;
+  transform-origin: bottom;
+  transition: height .35s var(--ease), background .35s var(--ease), opacity .35s var(--ease);
+}
+/* Off: only every fourth frame survives TikTok's pass, so only those stand up.
+   Three short, one tall, repeating — the 120-to-30 ratio, at a glance. */
+#tthd-panel .tthd-cadence i.tthd-keep { height: 19px; background: #6f7981; }
+
+/* On: every frame survives, and the wave says the strip is live. The stagger is
+   driven by --i on each tick, so one keyframe animates all 48. */
+#tthd-panel.tthd-hd-on .tthd-cadence i {
+  height: 19px;
+  background: var(--pass);
+  opacity: .5;
+  animation: tthd-cadence 1.9s linear infinite;
+  animation-delay: calc(var(--i) * -34ms);
+}
+/* Every tick is now tall — every frame survives. The wave only brightens; the
+   comb stays whole underneath it, so the strip reads as a full 120 either way. */
+@keyframes tthd-cadence {
+  0%, 55%, 100% { opacity: .5;  transform: scaleY(.82); }
+  14%           { opacity: 1;   transform: scaleY(1); }
+  32%           { opacity: .5;  transform: scaleY(.82); }
+}
+
+/* ---------------------------------------------------------- the one control */
+
+#tthd-panel .tthd-hdrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+}
+#tthd-panel .tthd-hdlabel {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+  transition: color .3s var(--ease);
+}
+#tthd-panel.tthd-hd-on .tthd-hdlabel { color: var(--type); }
+#tthd-panel .tthd-hdrow input[type="checkbox"] {
+  position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none;
+}
+#tthd-panel .tthd-hdrow:active .tthd-switch { transform: scale(.94); }
+#tthd-panel .tthd-hdrow:has(input:disabled) { cursor: default; }
+#tthd-panel .tthd-hdrow:has(input:disabled) .tthd-hdlabel { opacity: .45; }
+
+#tthd-panel .tthd-ghostnote:empty { display: none; }
+#tthd-panel .tthd-ghostnote {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--edge);
+  color: var(--hold);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+#tthd-panel code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--type);
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------- live status */
+
+#tthd-panel .tthd-swapstat:empty { display: none; }
+#tthd-panel .tthd-swapstat {
+  margin-top: 11px;
+  padding: 11px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  background: rgba(10, 12, 14, .74);
+  font-size: 12px;
+}
+/* A sentence, not a legend. The small-caps mono treatment belongs on fixed
+   labels; applied to running text it wraps into an unreadable block. */
+#tthd-panel .tthd-swaphead {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--type);
+}
+#tthd-panel .tthd-swaphead.tthd-good { color: var(--pass); }
+#tthd-panel .tthd-swaphead.tthd-warn { color: var(--hold); }
+#tthd-panel .tthd-swaphead.tthd-bad  { color: var(--stop); }
+
+#tthd-panel .tthd-bar {
+  height: 2px;
+  margin-top: 10px;
+  background: var(--edge-2);
+  overflow: hidden;
+}
+#tthd-panel .tthd-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--type);
+  transition: width .25s var(--ease);
+}
+#tthd-panel .tthd-swapnote {
+  margin-top: 7px;
+  color: var(--mute);
+  font-size: 11.5px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+#tthd-panel .tthd-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 12px;
+  background: var(--rail);
+  border: 1px solid var(--edge-2);
+  border-radius: 3px;
+  color: var(--type);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+#tthd-panel .tthd-btn:hover:not(:disabled) { background: #23282e; border-color: #414952; }
+#tthd-panel .tthd-btn:active:not(:disabled) { background: var(--ink); }
+#tthd-panel .tthd-btn:disabled { opacity: .45; cursor: default; }
+#tthd-panel .tthd-btn:focus-visible { outline: 2px solid var(--mute); outline-offset: 2px; }
+
+/* The one action that matters gets weight, not colour. */
+#tthd-panel .tthd-btn.tthd-primary {
+  margin-top: 11px;
+  background: var(--type);
+  border-color: var(--type);
+  color: var(--ink);
+  font-weight: 600;
+}
+#tthd-panel .tthd-btn.tthd-primary:hover:not(:disabled) { background: #fff; border-color: #fff; }
+#tthd-panel .tthd-btn.tthd-primary:active:not(:disabled) { background: #c9ced2; border-color: #c9ced2; }
+
+/* ------------------------------------------------------- diagnostics drawer */
+
+#tthd-panel .tthd-adv { margin-top: 12px; border-top: 1px solid var(--edge); }
+
+#tthd-panel .tthd-adv-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 2px 9px;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color .15s var(--ease);
+}
+#tthd-panel .tthd-adv-toggle:hover { color: var(--type); }
+#tthd-panel .tthd-adv-toggle:focus-visible { outline: 2px solid var(--mute); outline-offset: 2px; }
+
+#tthd-panel .tthd-chev {
+  width: 6px; height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .22s var(--ease);
+  flex: none;
+}
+#tthd-panel.tthd-adv-open .tthd-chev { transform: rotate(45deg); }
+
+#tthd-panel .tthd-advcount {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+#tthd-panel .tthd-adv-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .28s var(--ease);
+}
+#tthd-panel .tthd-adv-body > div { overflow: hidden; }
+#tthd-panel.tthd-adv-open .tthd-adv-body { grid-template-rows: 1fr; }
+#tthd-panel .tthd-adv-inner { padding: 4px 0 2px; }
+
+#tthd-panel .tthd-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--edge);
+}
+#tthd-panel .tthd-row > span {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+  padding-top: 1px;
+}
+#tthd-panel .tthd-row > b {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+#tthd-panel .tthd-ctl-sm { margin-top: 10px; border: 1px solid var(--edge); border-radius: 3px; }
+
+/* ------------------------------------------------ diagnostic sub-components */
+
+#tthd-panel .tthd-enc:empty, #tthd-panel .tthd-diff:empty, #tthd-panel .tthd-vout:empty { display: none; }
+
+#tthd-panel .tthd-enc { margin-top: 10px; }
+#tthd-panel .tthd-e {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--stop);
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-left: 2px solid var(--stop);
+  padding: 6px 8px;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+#tthd-panel .tthd-diff { margin-top: 11px; }
+#tthd-panel .tthd-dhead {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--hold);
+  margin-bottom: 6px;
+}
+#tthd-panel .tthd-dhead-info { color: var(--faint); }
+#tthd-panel .tthd-obs { font-family: var(--mono); font-size: 10.5px; color: var(--mute); line-height: 1.8; }
+#tthd-panel .tthd-obs code { color: var(--mute); }
+#tthd-panel .tthd-dnote { font-size: 11.5px; color: var(--mute); line-height: 1.5; }
+#tthd-panel .tthd-dnote.tthd-okc { color: var(--pass); }
+#tthd-panel .tthd-d {
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-left: 2px solid var(--hold);
+  padding: 7px 9px;
+  margin-bottom: 5px;
+}
+#tthd-panel .tthd-dbox { font-family: var(--mono); font-size: 10.5px; color: var(--hold); margin-bottom: 3px; word-break: break-all; }
+#tthd-panel .tthd-dval { font-family: var(--mono); font-size: 10px; color: var(--mute); font-variant-numeric: tabular-nums; }
+#tthd-panel .tthd-dval b { color: var(--type); font-weight: 600; }
+#tthd-panel .tthd-dnum { color: var(--type); }
+
+#tthd-panel .tthd-vout {
+  margin-top: 9px;
+  padding: 10px 11px;
+  border: 1px solid var(--edge);
+  border-left-width: 2px;
+  border-left-color: var(--idle);
+  border-radius: 3px;
+  background: var(--rail);
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.5;
+}
+#tthd-panel .tthd-vout.tthd-good { border-left-color: var(--pass); }
+#tthd-panel .tthd-vout.tthd-warn { border-left-color: var(--hold); }
+#tthd-panel .tthd-vout.tthd-bad  { border-left-color: var(--stop); color: #d9b0b1; }
+
+#tthd-panel .tthd-vrow { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+#tthd-panel .tthd-vrow > span { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+#tthd-panel .tthd-vrow > b { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--type); font-variant-numeric: tabular-nums; }
+#tthd-panel .tthd-ladder { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--edge); }
+#tthd-panel .tthd-lhead { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 5px; }
+#tthd-panel .tthd-l { font-family: var(--mono); font-size: 10.5px; color: var(--mute); padding: 2px 0; font-variant-numeric: tabular-nums; }
+#tthd-panel .tthd-l:first-of-type { color: var(--type); }
+#tthd-panel .tthd-vmsg { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--edge); font-size: 11.5px; }
+
+#tthd-panel .tthd-note {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--edge);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--faint);
+}
+
+/* ----------------------------------------------------------------- overlay */
+
+#tthd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  background: rgba(8, 10, 12, .82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+#tthd-overlay .tthd-ov-card {
+  width: min(500px, 90vw);
+  padding: 26px 28px;
+  border-radius: 6px;
+  background: #16191c;
+  border: 1px solid #282d33;
+  border-top: 2px solid #8b939b;
+  color: #e4e7e9;
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, .8);
+}
+#tthd-overlay .tthd-ov-title {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #e4e7e9;
+}
+#tthd-overlay .tthd-ov-sub { margin-top: 10px; color: #8b939b; font-size: 13.5px; }
+#tthd-overlay .tthd-ov-bar { height: 2px; margin-top: 18px; background: #343a41; overflow: hidden; }
+#tthd-overlay .tthd-ov-bar > i {
+  display: block; height: 100%; width: 2%;
+  background: #e4e7e9;
+  transition: width .25s cubic-bezier(.4, 0, .2, 1);
+}
+#tthd-overlay .tthd-ov-note {
+  margin-top: 15px; color: #8b939b; font-size: 12.5px; line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+#tthd-overlay .tthd-ov-card.tthd-ov-err { border-top-color: #c1585a; }
+#tthd-overlay .tthd-ov-card.tthd-ov-err .tthd-ov-title { color: #c1585a; }
+#tthd-overlay .tthd-ov-card.tthd-ov-err .tthd-ov-bar > i { background: #c1585a; }
+#tthd-overlay .tthd-ov-card.tthd-ov-ok { border-top-color: #57a877; }
+#tthd-overlay .tthd-ov-card.tthd-ov-ok .tthd-ov-title { color: #57a877; }
+#tthd-overlay .tthd-ov-card.tthd-ov-ok .tthd-ov-bar > i { background: #57a877; }
+#tthd-overlay .tthd-ov-x {
+  margin-top: 18px; padding: 9px 16px; border-radius: 3px; cursor: pointer;
+  background: #1c2024; border: 1px solid #343a41; color: #e4e7e9; font: inherit; font-size: 12.5px;
+  transition: background .15s cubic-bezier(.4, 0, .2, 1), border-color .15s cubic-bezier(.4, 0, .2, 1);
+}
+#tthd-overlay .tthd-ov-x:hover { background: #23282e; border-color: #414952; }
+#tthd-overlay .tthd-ov-x:focus-visible { outline: 2px solid #8b939b; outline-offset: 2px; }
+
+/* ------------------------------------------------------------ accessibility */
+
+@media (prefers-reduced-motion: reduce) {
+  #tthd-panel, #tthd-panel *, #tthd-overlay, #tthd-overlay * {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* Guidance, not explanation: the pipeline preserves whatever rate it is given,
+   so the only thing the reader controls is what they export. */
+#tthd-panel .tthd-hint {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--edge);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--faint);
+}
+
+/* ------------------------------------------------------------ per-site theme */
+
+/*
+ * --brand and --brand-star are written onto the panel by content.js from the
+ * detected hostname. Brand colour drives the mark and the resting starfield.
+ *
+ * Status still wins: the :has() rules further up override --star for good/warn/
+ * bad, so a red error reads as an error on YouTube too rather than blending
+ * into a permanently red field. Brand tells you WHERE you are; status tells you
+ * WHAT is happening, and those must never be the same signal.
+ */
+#tthd-panel .tthd-brand {
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  flex: none;
+  color: var(--brand, var(--type));
+}
+#tthd-panel .tthd-brand svg { width: 100%; height: 100%; display: block; }
+
+/* Instagram's mark is a stroked outline rather than a filled glyph, so it needs
+   a touch more room to read at this size. */
+#tthd-panel[data-site="instagram"] .tthd-brand { width: 21px; height: 21px; }
+
+/* Resting field takes the brand colour. */
+#tthd-panel .tthd-stars { --star: var(--brand-star, #4a525a); }
+/* Nothing staged yet: fall back to neutral so the field is not shouting the
+   brand at a panel that has no file. */
+#tthd-panel:has(.tthd-dot.tthd-neutral) .tthd-stars { --star: var(--brand-star, #4a525a); opacity: .55; }
+
+#tthd-panel .tthd-stars { transition: opacity .4s var(--ease); }
+#tthd-panel:has(.tthd-dot.tthd-good) .tthd-stars,
+#tthd-panel:has(.tthd-dot.tthd-warn) .tthd-stars,
+#tthd-panel:has(.tthd-dot.tthd-bad) .tthd-stars { opacity: 1; }
+
+/* The engaged stage picks up a hint of the brand instead of a fixed green. */
+#tthd-panel.tthd-hd-on .tthd-stage { border-color: color-mix(in srgb, var(--brand) 28%, var(--edge)); }
+#tthd-panel.tthd-hd-on .tthd-cadence i { background: var(--brand-star, var(--pass)); }
+#tthd-panel.tthd-hd-on .tthd-hdlabel { color: var(--type); }
+
+/* The engaged switch stays monochrome. Colour is status; an engaged control is
+   not a status, and that rule does not get an exception for brand colour. */
+
+/* --------------------------------------------------- cadence, per platform */
+
+/*
+ * Ticks carry two marks: `.tthd-keep` for frames the platform keeps on its own,
+ * and `data-on` for frames it keeps with this tool. On TikTok those differ —
+ * every 4th versus every one — so switching on visibly fills the strip. On
+ * YouTube and Instagram they are identical, because the tool does not raise a
+ * 60fps ceiling, and the strip stays at the same density rather than implying
+ * it does. What changes there is the colour: the same frames, delivered clean
+ * instead of blended.
+ */
+#tthd-panel.tthd-hd-on .tthd-cadence i { height: 5px; background: #2f363d; }
+#tthd-panel.tthd-hd-on .tthd-cadence i[data-on] {
+  height: 19px;
+  background: var(--brand-star, var(--pass));
+  animation: tthd-cadence 1.9s linear infinite;
+  animation-delay: calc(var(--i) * -34ms);
+}
+
+/* -------------------------------------------------------------- method */
+
+/*
+ * A readout, not a control. Which technique to use is a question the tool
+ * answers from the site it is on; presenting four buttons made a research
+ * apparatus into a choice the user has no basis to make.
+ */
+#tthd-panel .tthd-methods:empty { display: none; }
+#tthd-panel .tthd-methods { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--edge); }
+#tthd-panel .tthd-mlabel {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 5px;
+}
+#tthd-panel .tthd-mname {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--type);
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+/* Brand colour, not a status colour: measured is a fact about the technique,
+   not a statement about what is happening right now. */
+#tthd-panel .tthd-mname i {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--brand, var(--pass));
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  padding: 1px 4px;
+}
+#tthd-panel .tthd-mwhat {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--mute);
+}
+
+/* ------------------------------------------------- method picker (unsettled) */
+
+/*
+ * Shown only on platforms with no proven technique. Each button carries the
+ * result of trying it, so an upload is never spent twice on the same candidate
+ * — the row is an experiment log, not a preference.
+ */
+#tthd-panel .tthd-mrow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+#tthd-panel .tthd-m {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  background: var(--rail);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  color: var(--mute);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+#tthd-panel .tthd-m:hover { background: #16191c; color: var(--type); border-color: var(--edge-2); }
+#tthd-panel .tthd-m.tthd-m-on {
+  background: var(--type);
+  border-color: var(--type);
+  color: var(--ink);
+  font-weight: 600;
+}
+#tthd-panel .tthd-m:focus-visible { outline: 2px solid var(--mute); outline-offset: 2px; }
+
+/* Already tried and ruled out. Dimmed rather than hidden: knowing what failed
+   is the point, and it stays selectable in case it is worth a second look. */
+#tthd-panel .tthd-m.tthd-m-out { opacity: .5; }
+#tthd-panel .tthd-m.tthd-m-out.tthd-m-on { opacity: 1; }
+
+/* The method this tool would pick. A quiet outline, not a shout — it is a
+   suggestion sitting next to three equals, and the tally rule elsewhere in the
+   panel already owns the loud colours. */
+#tthd-panel .tthd-m.tthd-m-rec {
+  border-color: color-mix(in srgb, var(--pass) 45%, var(--edge));
+}
+#tthd-panel .tthd-tried.tthd-rec {
+  color: var(--pass);
+  border-color: color-mix(in srgb, var(--pass) 40%, transparent);
+}
+
+/* A method that would damage the upload on this platform. Distinct from
+   tthd-m-out, which only means "tried, did not deliver" — this one means
+   "do not run this here". */
+#tthd-panel .tthd-m.tthd-m-risk {
+  border-color: color-mix(in srgb, var(--stop) 55%, var(--edge));
+  opacity: .72;
+}
+#tthd-panel .tthd-m.tthd-m-risk::after {
+  content: '!';
+  margin-left: 5px;
+  color: var(--stop);
+  font-weight: 700;
+}
+#tthd-panel .tthd-mrisk {
+  margin: 7px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--stop);
+  background: color-mix(in srgb, var(--stop) 10%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--mute);
+}
+
+/* ---- publish ------------------------------------------------------------ */
+
+#tthd-panel .tthd-publish {
+  margin: 12px 0 0;
+  padding: 11px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--rail);
+}
+#tthd-panel .tthd-pubhead {
+  font-size: 10px;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 9px;
+}
+#tthd-panel .tthd-cover {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+#tthd-panel .tthd-covimg {
+  width: 45px;
+  height: 80px;
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid var(--edge);
+  background: var(--ink);
+}
+#tthd-panel .tthd-covctl { flex: 1; min-width: 0; }
+#tthd-panel .tthd-covlab {
+  display: block;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 5px;
+}
+#tthd-panel .tthd-covscrub {
+  width: 100%;
+  accent-color: var(--brand);
+  margin: 0;
+}
+#tthd-panel .tthd-covat {
+  display: block;
+  font-size: 10px;
+  color: var(--mute);
+  margin-top: 3px;
+}
+
+#tthd-panel .tthd-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  cursor: pointer;
+}
+#tthd-panel .tthd-dest input { position: absolute; opacity: 0; pointer-events: none; }
+#tthd-panel .tthd-dest-off { opacity: .45; }
+#tthd-panel .tthd-destname { flex: 1; font-size: 12px; }
+#tthd-panel .tthd-destspec { font-size: 10px; color: var(--mute); }
+
+#tthd-panel .tthd-pubrow {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+  padding: 4px 0;
+  border-top: 1px solid var(--edge);
+}
+#tthd-panel .tthd-pubrow b { min-width: 62px; font-weight: 600; }
+#tthd-panel .tthd-pubrow i { color: var(--mute); font-style: normal; font-size: 10px; }
+#tthd-panel .tthd-pubbad { color: var(--stop); }
+#tthd-panel .tthd-puberr {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--mute);
+  margin-top: 7px;
+}
+
+#tthd-panel .tthd-tried {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .04em;
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+/* A result, so it takes a status colour: this is a measurement, not chrome. */
+#tthd-panel .tthd-tried.tthd-ok { color: var(--pass); }
+#tthd-panel .tthd-tried.tthd-no { color: var(--stop); }
+#tthd-panel .tthd-m.tthd-m-on .tthd-tried { color: var(--ink); }
+
+#tthd-panel .tthd-mwhat b {
+  display: block;
+  margin-top: 5px;
+  font-weight: 500;
+  color: var(--hold);
+}
+
+/* ---- tabs ---------------------------------------------------------------- */
+
+/* Two panes, one panel. The tab strip sits under the header so the identity of
+   the site stays visible whichever pane is open. */
+#tthd-panel .tthd-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--edge);
+  background: var(--rail);
+}
+#tthd-panel .tthd-tab {
+  flex: 1;
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color .14s var(--ease), border-color .14s var(--ease);
+}
+#tthd-panel .tthd-tab:hover { color: var(--mute); }
+#tthd-panel .tthd-tab-on {
+  color: var(--type);
+  border-bottom-color: var(--brand);
+}
+
+/* ---- drop ---------------------------------------------------------------- */
+
+#tthd-panel .tthd-drop {
+  margin: 12px;
+  padding: 22px 14px;
+  border: 1px dashed var(--edge-2);
+  border-radius: 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .16s var(--ease), background .16s var(--ease);
+}
+#tthd-panel .tthd-drop:hover { border-color: var(--pass); }
+/* Lit while a file is over the window, so the panel is visibly the target. */
+#tthd-panel.tthd-dragging .tthd-drop {
+  border-color: var(--pass);
+  border-style: solid;
+  background: color-mix(in srgb, var(--pass) 8%, transparent);
+}
+#tthd-panel .tthd-droptext { font-size: 12px; }
+#tthd-panel .tthd-dropsub { margin-top: 4px; font-size: 10px; color: var(--faint); }
+
+/* ---- cover picker -------------------------------------------------------- */
+
+#tthd-panel .tthd-pub { padding: 0 12px 12px; }
+#tthd-panel .tthd-pubfile {
+  font-size: 10px;
+  color: var(--mute);
+  padding-bottom: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tthd-panel .tthd-covwrap { text-align: center; }
+#tthd-panel .tthd-covmain {
+  width: 90px;
+  height: 160px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+  background: var(--ink);
+}
+
+/* The filmstrip. A row of decoded frames with a playhead — dragging it picks
+   the cover, which is the interaction people already know from the apps. */
+#tthd-panel .tthd-strip {
+  position: relative;
+  display: flex;
+  gap: 1px;
+  margin: 10px 0 0;
+  padding: 2px;
+  border-radius: 3px;
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  cursor: ew-resize;
+  touch-action: none;
+}
+#tthd-panel .tthd-stripcell {
+  flex: 1;
+  height: 34px;
+  min-width: 0;
+  display: block;
+}
+#tthd-panel .tthd-strip::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: var(--at, 33%);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--brand);
+  /* A hairline against the frames, not a glow — outline, not shadow. */
+  outline: 1px solid #000;
+  pointer-events: none;
+}
+#tthd-panel .tthd-strip:focus-visible { outline: 1px solid var(--brand); outline-offset: 2px; }
+#tthd-panel .tthd-covfoot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--mute);
+}
+#tthd-panel .tthd-dim { color: var(--faint); }
+
+/* ---- accounts ------------------------------------------------------------ */
+
+#tthd-panel .tthd-accts { margin: 14px 0 4px; }
+#tthd-panel .tthd-acct {
+  padding: 8px 0;
+  border-top: 1px solid var(--edge);
+}
+#tthd-panel .tthd-acctrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+#tthd-panel .tthd-acctname { font-size: 12px; }
+#tthd-panel .tthd-acctstate { font-size: 10px; color: var(--hold); }
+#tthd-panel .tthd-acctwhat {
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+/* ---- publish output ------------------------------------------------------ */
+
+#tthd-panel .tthd-pubmsg {
+  margin-top: 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--mute);
+}
+#tthd-panel .tthd-pubrow {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 11px;
+  padding: 5px 0;
+  border-top: 1px solid var(--edge);
+}
+#tthd-panel .tthd-pubrow b { min-width: 60px; font-weight: 600; }
+#tthd-panel .tthd-pubrow i { font-style: normal; font-size: 10px; color: var(--hold); }
+#tthd-panel .tthd-pubbad { color: var(--stop); }
+
+/* ---- connect ------------------------------------------------------------- */
+
+/* A row is a name and a button. The setup steps stay folded away until someone
+   presses Connect on a platform that has no client ID yet — three API
+   walkthroughs shown at once is how a tool starts feeling like homework. */
+#tthd-panel .tthd-acctrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+#tthd-panel .tthd-acctplat { flex: 1; font-size: 12px; }
+#tthd-panel .tthd-acctname {
+  font-size: 11px;
+  color: var(--pass);
+  max-width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tthd-panel .tthd-acctexp { font-size: 10px; color: var(--hold); }
+
+#tthd-panel .tthd-conn {
+  flex: none;
+  padding: 4px 11px;
+  border: 1px solid var(--edge-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--type);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color .14s var(--ease), color .14s var(--ease);
+}
+#tthd-panel .tthd-conn:hover { border-color: var(--mute); }
+/* Connected reads as a state, not an action — green, and quiet about it. */
+#tthd-panel .tthd-conn-on {
+  border-color: color-mix(in srgb, var(--pass) 50%, var(--edge));
+  color: var(--pass);
+}
+
+#tthd-panel .tthd-setup {
+  margin: 9px 0 2px;
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--ink);
+  border: 1px solid var(--edge);
+}
+#tthd-panel .tthd-steps {
+  margin: 0 0 10px;
+  padding-left: 17px;
+  font-size: 10px;
+  line-height: 1.65;
+  color: var(--mute);
+}
+#tthd-panel .tthd-steps li { margin-bottom: 2px; }
+#tthd-panel .tthd-setuplab {
+  display: block;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 8px 0 4px;
+}
+#tthd-panel .tthd-setupin {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--edge-2);
+  border-radius: 3px;
+  background: var(--rail);
+  color: var(--type);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+#tthd-panel .tthd-setupin:focus-visible { outline: 1px solid var(--brand); outline-offset: 1px; }
+#tthd-panel .tthd-setupin[readonly] { color: var(--mute); }
+#tthd-panel .tthd-setuprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  gap: 9px;
+}
+#tthd-panel .tthd-setuplink {
+  font-size: 10px;
+  color: var(--brand);
+  text-decoration: none;
+}
+#tthd-panel .tthd-setuplink:hover { text-decoration: underline; }
+#tthd-panel .tthd-btn-sm {
+  width: auto;
+  padding: 5px 12px;
+  font-size: 11px;
+  margin: 0;
+}
+
+/* ---- live readout -------------------------------------------------------- */
+
+/* What is on screen right now — someone else's post as readily as your own.
+   Sits above the stage because on a feed it is the reason the panel is open. */
+#tthd-panel .tthd-live {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--rail);
+}
+#tthd-panel .tthd-livelabel {
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+#tthd-panel .tthd-livespec {
+  font-size: 13px;
+  color: var(--type);
+  font-variant-numeric: tabular-nums;
+}
+/* Above 100fps is the thing worth spotting; 1080p and up is worth noting. */
+#tthd-panel .tthd-livespec.tthd-hi  { color: var(--pass); }
+#tthd-panel .tthd-livespec.tthd-mid { color: var(--type); }
+
+/* The ingest region, shown while the upload is still going out. Colour carries
+   the verdict because the text has to stay short enough to read at a glance.
+   Scoped to the panel like every other rule here — a bare .tthd-region would
+   style anything on TikTok's own page that happened to share the name. */
+#tthd-panel .tthd-region {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dim, #9aa3ab);
+  font-variant-numeric: tabular-nums;
+}
+#tthd-panel .tthd-region[data-ok="1"] { color: var(--pass); }
+#tthd-panel .tthd-region[data-ok="0"] { color: var(--stop); }

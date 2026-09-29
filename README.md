@@ -1,12 +1,16 @@
 # Pristine
 
-Pristine is a free, open-source browser tool for preparing MP4 videos for TikTok. There is no account, payment, upload, or application server. The file stays on your device.
+Pristine is a free, open-source browser tool for converting and preparing videos for TikTok. There is no account, payment, upload, or application server. The file stays on your device.
 
 ## How it works
 
-The browser reads the MP4 file's `ftyp` and `moov` boxes to inspect its tracks and properties. When you download, Pristine copies the file index, adds a decoy audio track with extra samples, adjusts the MP4 tables and offsets, and assembles a new file from the original video data. It does not decode, re-encode, upscale, or modify the video frames. If a file has no audio track, it adds a silent AAC track first.
+Choose **4K/60**, **1080p/120**, or **4K/120**, select a video, and download the prepared MP4. MP4, MOV, WebM and other supported containers can be read. The browser resizes the picture to the selected dimensions, keeps its aspect ratio with padding, and repeats or drops frames to reach the selected frame rate. Upscaling does not create extra source detail, and repeating 30 fps frames does not create true 120 fps motion. 4K/120 uses HEVC; the other presets use H.264 when conversion is needed.
 
-This method depends on how TikTok currently processes uploads. Its current high-quality delivery is unverified. TikTok may briefly serve the original upload while a post is under review, then replace it with lower-resolution renditions. Check the published video after processing; the Studio preview is not proof of final quality. Pristine is not affiliated with TikTok or ByteDance.
+Encoding runs locally using the browser's encoder when available, with FFmpeg WebAssembly as a software fallback. Large clips can be slow or exceed the device's available memory. A cancel button stops conversion. Already matching, compatible MP4s can skip re-encoding. The output is checked before download.
+
+After conversion, the MP4 preparation step changes audio sample tables and container metadata. This step preserves the video packets and frame count; it never duplicates the video track or makes the video ten times longer. Silent files receive an AAC track. The page includes optional click and file-selection sounds with a remembered mute setting.
+
+Pristine may not always work. TikTok can change quality at upload time or later. The current method retained high-resolution files in published tests. Camera-roll playback remains unreliable in the test group, and file frame rate is different from displayed frame rate. See [test results and limitations](docs/upload-tests.md). Check the published video; the Studio preview is not proof. Pristine is not affiliated with TikTok or ByteDance.
 
 ## Run locally
 
@@ -36,8 +40,12 @@ The custom domain is recorded in `.github/pages-domain`. Namecheap points the `@
 
 ## Donations
 
-Using Pristine is free. Donations are optional and do not unlock features. You can [buy the project a coffee](https://buymeacoffee.com/pristine4k) if you want to support it.
+Donations help fund the creation of these free tools. Donations are optional and do not unlock features. [Buy me a coffee](https://buymeacoffee.com/pristine4k).
+
+## Chrome extension
+
+The [Upload Inspector extension](extension/README.md) opens quality reports for published videos and can prepare a selected TikTok upload locally. Load `extension/` unpacked in Chrome. After editing the shared MP4 code, run `node scripts/build-extension.mjs` to rebuild its browser bundle. It adds no paid service.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm run verify` and `npm run build` before submitting a change. The code is licensed under [MIT](LICENSE).
+Issues and pull requests are welcome. Please run `npm run verify` and `npm run build` before submitting a change. Pristine's own code is licensed under [MIT](LICENSE); bundled dependencies retain their [own licenses](docs/third-party.md).

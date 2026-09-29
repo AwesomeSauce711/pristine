@@ -19,6 +19,9 @@
 
 # production
 /build
+/public/encoder
+/public/coi-serviceworker.js
+/artifacts
 
 # misc
 .DS_Store

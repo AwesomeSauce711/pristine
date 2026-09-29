@@ -4,14 +4,23 @@
   "private": false,
   "license": "MIT",
   "scripts": {
+    "predev": "node scripts/build-encoder.mjs",
+    "prebuild": "node scripts/build-encoder.mjs",
+    "prepublish": "node scripts/build-encoder.mjs",
     "dev": "next dev",
     "build": "next build",
     "publish": "node scripts/publish-pages.mjs",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && tsx scripts/verify.mts && tsx scripts/verify-silent.mts"
+    "verify": "npm run typecheck && tsx scripts/verify.mts && tsx scripts/verify-silent.mts && tsx scripts/verify-upload.mts && node scripts/verify-report.cjs"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/core-mt": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@mediabunny/aac-encoder": "^1.60.0",
+    "coi-serviceworker": "^0.1.7",
+    "mediabunny": "^1.60.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",

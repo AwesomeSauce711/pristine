@@ -395,7 +395,7 @@ const AAC_ASC = new Uint8Array([0x12, 0x10]);
 const be16 = (n: number): Uint8Array => new Uint8Array([(n >>> 8) & 0xff, n & 0xff]);
 const zeros = (n: number): Uint8Array => new Uint8Array(n);
 
-function buildSilentTrak(
+export function buildSilentTrak(
   moov: Uint8Array,
   mvhd: Box,
   trackId: number,
