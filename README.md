@@ -8,7 +8,7 @@ Pristine is a free, open-source browser tool for converting and preparing videos
 
 Choose **4K/60**, **1080p/120**, or **4K/120**, select a video, and download the prepared MP4. MP4, MOV, WebM and other supported containers can be read. The browser resizes the picture to the selected dimensions, keeps its aspect ratio with padding, and repeats or drops frames to reach the selected frame rate. Upscaling does not create extra source detail, and repeating 30 fps frames does not create true 120 fps motion. 4K/120 uses HEVC; the other presets use H.264 when conversion is needed.
 
-Encoding runs locally using the browser's encoder when available, with FFmpeg WebAssembly as a software fallback. Large clips can be slow or exceed the device's available memory. A cancel button stops conversion. Already matching, compatible MP4s can skip re-encoding. The output is checked before download.
+Encoding runs locally using the browser's encoder when available, with FFmpeg WebAssembly as a software fallback. Large clips can be slow or exceed the device's available memory. A cancel button stops conversion. Already matching, compatible MP4s can skip re-encoding. If a matching MP4 needs its audio normalized, the original video packets are copied while the first audio track is converted to stereo AAC. The output is checked before download.
 
 After conversion, the MP4 preparation step changes audio sample tables and container metadata. This step preserves the video packets and frame count; it never duplicates the video track or makes the video ten times longer. Silent files receive an AAC track. The page includes optional click and file-selection sounds with a remembered mute setting.
 
