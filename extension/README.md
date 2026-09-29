@@ -1,4 +1,6 @@
-# Upload Inspector 2.8.0
+# Upload Inspector 2.8.1
+
+The report inspects playback and the saved-video URL separately when TikTok exposes both. A 720p/30 watermarked download can coexist with higher-quality playback. A readable container alone does not confirm camera-roll compatibility.
 
 ## Open a quality report
 

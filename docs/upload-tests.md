@@ -34,6 +34,21 @@ The website now converts mismatched inputs locally before applying the audio/con
 
 ## Evidence and limits
 
+### End-of-video and saved-file follow-up
+
+The user reported that I stops around counter 713–714 on the phone, and that the larger 4K/60 file also pauses at the end. Local decoding of I finds all 720 frames, including counter 719. Its small 1,578,525-byte size reflects a simple HEVC test pattern and does not establish the cause of the pause. Increasing file size alone is not a demonstrated fix.
+
+The reference files retain edit lists and constant video sample timing. I/J remove those edit lists, stretch their last video sample, and declare padded audio media durations that do not include all appended sample ticks. Two comparisons preserve the original video timing and edit lists, use normal first audio, and correct the padded audio media duration:
+
+| Comparison | Local decoding | Published observation |
+| --- | --- | --- |
+| [N: 4K/60](https://www.tiktok.com/@_awesomesxuce/video/7690784981081263391) | 720 frames, exactly 60 fps, video and playable audio 12 s | Public, not under review; original 34,586,271-byte file retained. Phone ending and saved-file playback awaiting verification. |
+| [O: 4K/120 HEVC](https://www.tiktok.com/@_awesomesxuce/video/7690785857225182495) | 720 frames, exactly 120 fps, 6 s video; playable audio 6.016 s | Public, not under review; original 1,581,410-byte file retained. Phone ending and saved-file playback awaiting verification. |
+
+These comparisons are not yet promoted to the website's preparation method. The user reports that the @siesta.ae reference downloads as a playable 720p/30 file with a TikTok watermark, despite higher-quality playback; our earlier retained originals downloaded without that watermark. Playback and saved downloads therefore need separate measurements. Extension 2.8.1 reports both when accessible. A browser cannot verify Apple Photos playback on the user's phone.
+
+### Other measurements
+
 - Original 4K/60 source: 2160×3840, 720 video frames, one AAC track with 563 samples.
 - C/F: the same 720 compressed video frames, one AAC track with 5,630 samples (5,067 appended), roughly 12 seconds of video. The average sample-table rate is 59.834 because edit-list removal changes the last video sample's timing slightly.
 - SHA-256 of the compressed video packet sequence before and after preparation: `a53c919ba9169665fe6a86818ea62e409eeb495dbb8c5caa794db1917c5ffeb4`.

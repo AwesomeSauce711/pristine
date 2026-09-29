@@ -1449,6 +1449,7 @@ function currentPublication() {
       platform: 'TikTok', id, reviewing: typeof item.isReviewing === 'boolean' ? item.isReviewing : null,
       private: !!item.privateItem, createdAt: Number(item.createTime) * 1000 || null,
       playUrl: video.playAddr || video.PlayAddrStruct?.UrlList?.[0] || '',
+      downloadUrl: video.downloadAddr || video.DownloadAddrStruct?.UrlList?.[0] || '',
       declared: { width: Number(video.width) || 0, height: Number(video.height) || 0,
         quality: video.videoQuality || '', codec: video.codecType || '' },
       definition: video.definition || '',
@@ -1575,7 +1576,7 @@ async function openReport() {
     // When these differ the tab needs reloading, and the report has to say so
     // out loud — a silently missing card is indistinguishable from a
     // measurement that genuinely failed.
-    build: '2.8.0',
+    build: '2.8.1',
     pageBuild: (last && last.build) || null,
     // ffprobe results from bytes the worker fetched — authoritative, and the
     // only path that reaches gears the page's CSP blocks.

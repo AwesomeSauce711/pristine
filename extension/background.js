@@ -89,11 +89,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const report = { ...payload, probe: { status: 'pending' }, observedAt: new Date().toISOString() };
       await chrome.storage.session.set({ ['report_' + id]: report });
       await chrome.tabs.create({ url: chrome.runtime.getURL('report.html?id=' + id) });
-      let probe;
-      try { probe = await inspectDeliveredMp4(direct && direct.url); }
-      catch (e) { probe = { error: String(e && e.message || e) }; }
+      const inspect = async url => {
+        try { return await inspectDeliveredMp4(url); }
+        catch (e) { return { error: String(e && e.message || e) }; }
+      };
+      const [probe, downloadProbe] = await Promise.all([
+        inspect(direct && direct.url),
+        payload.publication?.downloadUrl ? inspect(payload.publication.downloadUrl)
+          : Promise.resolve({ error: 'This page did not expose a saved-video URL.' }),
+      ]);
       probe.association = direct ? direct.association : 'none';
-      await chrome.storage.session.set({ ['report_' + id]: { ...report, probe } });
+      await chrome.storage.session.set({ ['report_' + id]: { ...report, probe, downloadProbe } });
       sendResponse({ ok: true });
     } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
   })();

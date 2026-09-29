@@ -2,6 +2,8 @@
 
 Pristine is a free, open-source browser tool for converting and preparing videos for TikTok. There is no account, payment, upload, or application server. The file stays on your device.
 
+**Latest update — September 28, 2026:** all three export presets, local video conversion, quality reports, optional sounds, and a desktop layout that fits on one screen. Optional donations appear at the bottom of the main page. [Instagram comparison results](docs/instagram-tests.md) currently show 720p/30 playback for both tested files, so the tool remains focused on TikTok.
+
 ## How it works
 
 Choose **4K/60**, **1080p/120**, or **4K/120**, select a video, and download the prepared MP4. MP4, MOV, WebM and other supported containers can be read. The browser resizes the picture to the selected dimensions, keeps its aspect ratio with padding, and repeats or drops frames to reach the selected frame rate. Upscaling does not create extra source detail, and repeating 30 fps frames does not create true 120 fps motion. 4K/120 uses HEVC; the other presets use H.264 when conversion is needed.

@@ -76,7 +76,7 @@
      * content.js compares this against its own constant and the report says
      * so, rather than leaving it to be inferred from which cards are absent.
      */
-    build: '2.8.0',
+    build: '2.8.1',
     guard: false,
   };
 

@@ -45,7 +45,7 @@ async function runWorker(fetchImpl) {
   const reply = await new Promise(resolve => listener({ type: 'tthd:localReport', payload: {
     pageUrl: 'https://www.tiktok.com/@example/video/1',
     pageVideo: { width: 2160, height: 3840, measuredFps: 119.8 },
-    publication: { id: '1', reviewing: true, renditions: [
+    publication: { id: '1', reviewing: true, downloadUrl: 'https://v16-webapp-prime.us.tiktok.com/download.mp4', renditions: [
       { gear: 'original', url: 'https://v16-webapp-prime.us.tiktok.com/test.mp4' },
     ] },
     ladder: [{ gear: 'original', url: 'https://v16-webapp-prime.us.tiktok.com/test.mp4' }], media: [],
@@ -64,6 +64,7 @@ async function runWorker(fetchImpl) {
     return new Response(bytes, { status: 206, headers: { 'content-range': `bytes ${start}-${start + bytes.length - 1}/${v120.length}` } });
   });
   assert.equal(success.probe.info.fps, 30);
+  assert.equal(success.downloadProbe.info.fps, 30);
   // A synthetic high-rate result exercises the distinction between stored and displayed fps.
   success.probe.info = { ...success.probe.info, width: 2160, height: 3840, fps: 120 };
   assert.equal(success.probe.association, 'current post rendition');
@@ -74,7 +75,7 @@ async function runWorker(fetchImpl) {
     addEventListener() {}
   }
   async function render(report) {
-    const elements = Object.fromEntries(['source', 'verdict', 'player', 'container', 'ladder', 'upload', 'download'].map(x => [x, new Element()]));
+    const elements = Object.fromEntries(['source', 'verdict', 'player', 'container', 'ladder', 'upload', 'download', 'saved-video'].map(x => [x, new Element()]));
     vm.runInNewContext(fs.readFileSync(path.join(ext, 'report.js'), 'utf8'), {
       document: { getElementById: id => elements[id], createElement: () => new Element() },
       location: { search: '?id=' + reportId }, URLSearchParams, Date, Number, JSON, Blob, URL,
@@ -87,6 +88,8 @@ async function runWorker(fetchImpl) {
   assert.match(elements.verdict.textContent, /120 fps stored in the delivered file/);
   assert.match(elements.verdict.textContent, /not proof that the player displays every frame/);
   assert.ok(elements.container.children.some(x => x.children?.some(y => y.textContent === '120 fps')));
+  assert.ok(elements['saved-video'].children.some(x => x.children?.some(y => y.textContent === '30 fps')));
+  assert.ok(elements['saved-video'].children.some(x => /different files/.test(x.textContent)));
   const dualAudio = await render({ ...success, probe: { ...success.probe, info: {
     ...success.probe.info,
     audio: [

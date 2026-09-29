@@ -59,6 +59,19 @@ async function main() {
     } else if (/tiktok\.com\/.*\/video\//.test(r.pageUrl || '')) note(verdict, 'TikTok processing status was unavailable. Recheck the published post later before treating this as the final rendition.');
   }
   if (!dimensions || !fps) verdict.classList.add('warn');
+  const savedVideo = $('saved-video');
+  const savedInfo = r.downloadProbe?.info;
+  if (savedVideo) {
+    if (savedInfo) {
+      row(savedVideo, 'Download dimensions', `${savedInfo.width} × ${savedInfo.height}`);
+      row(savedVideo, 'Download frame rate', fmt(savedInfo.fps, ' fps'));
+      row(savedVideo, 'Download codec', savedInfo.codec || 'Unknown');
+      row(savedVideo, 'Download duration', fmt(savedInfo.duration, ' s'));
+      if (savedInfo.movieDurationUnknown) row(savedVideo, 'Movie header duration', 'Unspecified');
+      audioEvidence(savedVideo, savedInfo.audio);
+    } else note(savedVideo, r.probe?.status === 'pending' ? 'Checking the saved-video version separately.' : r.downloadProbe?.error || 'Saved-video metadata was not captured.');
+    note(savedVideo, 'Playback and downloads can use different files. A 720p/30 download does not disprove 4K playback. Matching labels do not prove camera-roll compatibility; that requires playing the saved file on the device.');
+  }
   if (measuredMp4 && m.fps >= 115 && p.presentedFps > 0 && p.presentedFps < 90)
     note(verdict, `The file stores about 120 fps, but this browser presented about ${fmt(p.presentedFps, ' fps')} to its compositor. Device refresh rate and the player can limit what is shown.`);
   row($('player'), 'Decoded dimensions', p.width && p.height ? `${p.width} × ${p.height}` : 'Unknown');
