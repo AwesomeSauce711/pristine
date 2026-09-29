@@ -6,7 +6,7 @@ Pristine is a free, open-source browser tool for preparing MP4 videos for TikTok
 
 The browser reads the MP4 file's `ftyp` and `moov` boxes to inspect its tracks and properties. When you download, Pristine copies the file index, adds a decoy audio track with extra samples, adjusts the MP4 tables and offsets, and assembles a new file from the original video data. It does not decode, re-encode, upscale, or modify the video frames. If a file has no audio track, it adds a silent AAC track first.
 
-This method depends on how TikTok currently processes uploads. TikTok can change that behavior, and results are not guaranteed for every file or every viewer. Pristine is not affiliated with TikTok or ByteDance.
+This method depends on how TikTok currently processes uploads. Its current high-quality delivery is unverified. TikTok may briefly serve the original upload while a post is under review, then replace it with lower-resolution renditions. Check the published video after processing; the Studio preview is not proof of final quality. Pristine is not affiliated with TikTok or ByteDance.
 
 ## Run locally
 

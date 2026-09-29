@@ -139,6 +139,7 @@ export default function Home() {
               )}
               {error && <p role="alert" className="mt-4 text-sm text-bad">{error}</p>}
               {done && <p role="status" className="mt-4 text-sm text-good">Download started. Upload the saved file as it is, without editing or re-exporting it.</p>}
+              <p className="mt-4 text-sm text-muted">TikTok may change video quality after posting. Check the published video once processing finishes.</p>
               <p className="mt-5 text-sm text-dim">No upload. No email. No payment.</p>
             </div>
           </div>
