@@ -99,7 +99,7 @@ Download a fresh ZIP from this repository, extract it into a new folder, and rep
 
 Pristine may not always work. TikTok can change quality at upload time or later. Upscaling does not create extra source detail, and repeating 30 fps frames does not create true 120 fps motion. A file's recorded frame rate is different from the frame rate actually displayed by TikTok.
 
-Published 4K/60 and 4K/120 timing comparisons now loop normally on the tester's phone. The 120 fps file still appears to display fewer frames in TikTok. Saved copies can crash the phone's Photos app, including its information panel; that compatibility problem remains under investigation. See the [TikTok test results](docs/upload-tests.md). [Instagram comparisons](docs/instagram-tests.md) produced approximately 720p/30 playback for both tested files, so the website currently offers TikTok preparation only. Pristine is not affiliated with TikTok or ByteDance.
+Published 4K/60 and 4K/120 timing comparisons now loop normally on the tester's phone. The 120 fps file still appears to display fewer frames in TikTok. Saved copies can crash the phone's Photos app, including its information panel; this remains a known saved-file compatibility limitation. See the [TikTok test results](docs/upload-tests.md). [Instagram comparisons](docs/instagram-tests.md) produced approximately 720p/30 playback for both tested files, so the website currently offers TikTok preparation only. Pristine is not affiliated with TikTok or ByteDance.
 
 ## Development and hosting
 

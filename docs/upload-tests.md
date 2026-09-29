@@ -52,7 +52,9 @@ The loop result does not establish Photos compatibility: the user reports that p
 | Photos comparison | Single change from N | Published observation |
 | --- | --- | --- |
 | [P](https://www.tiktok.com/@_awesomesxuce/video/7690814943561518366) | Set the overall movie duration to 12 seconds | Public page re-encoded it to 720×1280, with a 1,211,399-byte `normal_720_0` rendition. Not promoted because it loses the retained 4K result. |
-| [Q](https://www.tiktok.com/@_awesomesxuce/video/7690815699937168670) | Clear the padded audio track's enabled/default flag | Public page retains 4K and plays on desktop; phone looping and Photos information-panel behavior awaiting verification. Not yet promoted. |
+| [Q](https://www.tiktok.com/@_awesomesxuce/video/7690815699937168670) | Clear the padded audio track's enabled/default flag | Public page retains 4K and plays on desktop. User confirms normal looping but Photos still crashes. Not promoted because the flag change did not fix saved-file compatibility. |
+
+The owner accepts the Photos limitation for TikTok-hosted use. No test here establishes a recommendation-ranking penalty from the Photos crash, or guarantees that TikTok ignores file compatibility in its private processing. The working upload layout is retained; there is no claim that it improves reach or guarantees For You eligibility.
 
 The @siesta.ae reference downloads as a playable 720p/30 file with a TikTok watermark, despite higher-quality playback; our earlier retained originals downloaded without that watermark. Playback and saved downloads therefore need separate measurements. A browser cannot verify Apple Photos playback on the user's phone.
 
