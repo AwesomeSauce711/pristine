@@ -45,7 +45,7 @@ The reference files retain edit lists and constant video sample timing. I/J remo
 | [N: 4K/60](https://www.tiktok.com/@_awesomesxuce/video/7690784981081263391) | 720 frames, exactly 60 fps, video and playable audio 12 s | Public, not under review; original 34,586,271-byte file retained. Phone ending and saved-file playback awaiting verification. |
 | [O: 4K/120 HEVC](https://www.tiktok.com/@_awesomesxuce/video/7690785857225182495) | 720 frames, exactly 120 fps, 6 s video; playable audio 6.016 s | Public, not under review; original 1,581,410-byte file retained. Phone ending and saved-file playback awaiting verification. |
 
-These comparisons are not yet promoted to the website's preparation method. The user reports that the @siesta.ae reference downloads as a playable 720p/30 file with a TikTok watermark, despite higher-quality playback; our earlier retained originals downloaded without that watermark. Playback and saved downloads therefore need separate measurements. Extension 2.8.1 reports both when accessible. A browser cannot verify Apple Photos playback on the user's phone.
+These comparisons are not yet promoted to the website's preparation method. The user reports that the @siesta.ae reference downloads as a playable 720p/30 file with a TikTok watermark, despite higher-quality playback; our earlier retained originals downloaded without that watermark. Playback and saved downloads therefore need separate measurements. A browser cannot verify Apple Photos playback on the user's phone.
 
 ### Other measurements
 

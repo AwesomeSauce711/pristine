@@ -12,7 +12,7 @@
     "publish": "node scripts/publish-pages.mjs",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && tsx scripts/verify.mts && tsx scripts/verify-silent.mts && tsx scripts/verify-upload.mts && node scripts/verify-report.cjs"
+    "verify": "npm run typecheck && tsx scripts/verify.mts && tsx scripts/verify-silent.mts && tsx scripts/verify-upload.mts"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",

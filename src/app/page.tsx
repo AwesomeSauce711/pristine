@@ -177,7 +177,7 @@ export default function Home() {
           </section>
 
           <footer className={`${styles.footer} flex flex-wrap items-center justify-between gap-5 text-xs text-muted`}>
-            <p>Pristine is free for everyone.</p>
+            <p>Questions/bugs? Discord: <span className="text-text">awesomesaucebs</span></p>
             <div className="flex flex-wrap items-center gap-5">
               <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="hover:text-text">Source code ↗</a>
               <Link href="/legal/privacy" className="hover:text-text">Privacy</Link>
