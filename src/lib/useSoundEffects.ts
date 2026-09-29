@@ -30,7 +30,7 @@ export function useSoundEffects() {
       const now = ctx.currentTime;
       if (sound === 'click' && now - lastClick.current < 0.045) return;
       if (sound === 'click') lastClick.current = now;
-      const notes = sound === 'click' ? [900] : sound === 'upload' ? [440, 660] : sound === 'ready' ? [660, 880, 1100] : [330, 260];
+      const notes = sound === 'click' ? [240] : sound === 'upload' ? [440, 660] : sound === 'ready' ? [660, 880, 1100] : [330, 260];
       notes.forEach((frequency, index) => {
         const oscillator = ctx.createOscillator();
         const gain = ctx.createGain();
